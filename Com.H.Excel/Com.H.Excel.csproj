@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <Authors>Hussein Al Bayati</Authors>
+    <Description>Allows for easy creation and consumption of xlsx files. E.g. extensions for exporting an IDictionary&lt;string, IEnumerable&lt;dynamic&gt;&gt; to multi-sheet xlsx document file or IO stream. And also extensions for reading xlsx into IDictionary&lt;string, dynamic&gt;&gt;.
+Accepts IEnumerable of both anonymous objects and ExpandoObjects</Description>
+    <Copyright>Hussein Al Bayati</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/H7O/Com.H.Excel</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/H7O/Com.H.Excel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>excel, openxml, dynamic, ExpandoObject, read, write</PackageTags>
+    <PackageReleaseNotes>Initial release</PackageReleaseNotes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="2.12.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Com.H">
+      <HintPath>..\..\Com.H\Com.H\bin\Release\net5.0\Com.H.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
