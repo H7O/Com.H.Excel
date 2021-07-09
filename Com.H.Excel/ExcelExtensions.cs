@@ -349,6 +349,14 @@ namespace Com.H.Excel
 
         #region read excel
 
+        /// <summary>
+        /// Reads an excel document and returns multiple excel sheets in the form of dictionary of dynamic collections, where the dictionary
+        /// keys represent the sheet name and the dynamic list associated to the sheet name represent the data in a dynamic (ExpandoObject) form
+        /// </summary>
+        /// <param name="inStream">input stream to the excel document</param>
+        /// <param name="skipHeaders"></param>
+        /// <returns>dictionary of dynamic collections, where the dictionary
+        /// keys represent the sheet name and the dynamic list associated to the sheet name represent the data in a dynamic (ExpandoObject) form</returns>
         public static Dictionary<string, List<dynamic>> ParseExcel(
             this System.IO.Stream inStream, bool skipHeaders = false)
         {
@@ -387,7 +395,7 @@ namespace Com.H.Excel
                         var headerName = headerNames[headerIndex];
                         Type type =
                             (headers[headerName] = cell.GetDataType(workbookPart)
-                            ?? headers[headerName]??typeof(string));
+                            ?? headers[headerName] ?? typeof(string));
 
                         if (cell == null)
                         {
@@ -400,13 +408,13 @@ namespace Com.H.Excel
 
                         // fill collapsed columns
                         if (index > headerIndex)
-                            headerName = headerNames[headerIndex = Enumerable.Range(headerIndex, (int) index - headerIndex)
+                            headerName = headerNames[headerIndex = Enumerable.Range(headerIndex, (int)index - headerIndex)
                                 .Aggregate(headerIndex, (i, n) =>
                                 {
                                     d.TryAdd(headerNames[i],
                                         (headers[headerNames[i]] = cell.GetDataType(workbookPart)
-                                        ?? headers[headerNames[i]]??typeof(string)).GetDefault());
-                                    return n+1;
+                                        ?? headers[headerNames[i]] ?? typeof(string)).GetDefault());
+                                    return n + 1;
                                 })];
 
                         object value = null;
@@ -424,8 +432,100 @@ namespace Com.H.Excel
 
 
             }
+            #region finalazing
+            doc.Close();
+
+            #endregion
             return result;
         }
+
+
+        public static List<T> ParseExcel<T>(
+            this System.IO.Stream inStream, string sheetName = null)
+        {
+            SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false);
+            var excelSheets = doc?.WorkbookPart?.Workbook?
+                    .Descendants<Sheet>();
+            WorkbookPart workbookPart = doc.WorkbookPart;
+            var sheetId = doc?.WorkbookPart?.Workbook?
+                    .Descendants<Sheet>().FirstOrDefault(x =>
+                string.IsNullOrWhiteSpace(sheetName)
+                || sheetName.EqualsIgnoreCase(x.Name))?.Id;
+
+            if (sheetId == null) return null;
+            var sheet = ((WorksheetPart)workbookPart.GetPartById(sheetId))?.Worksheet?.GetFirstChild<SheetData>();
+            if (sheet == null) return null;
+
+            var typeProperties = typeof(T).GetCachedProperties().ToDictionary(key => key.Name, value => value.Info);
+
+
+
+
+            var headers = sheet.FirstOrDefault()?
+            .Select(x => ((Cell)x).GetText(workbookPart)).Intersect(typeProperties.Keys, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(key => key, value => typeProperties.First(x => x.Key.EqualsIgnoreCase(value)));
+
+            if (headers == null || headers.Count < 1) return null;
+
+
+            List<string> headerNames = headers.Keys?.ToList();
+
+            List<T> result = new();
+            foreach (Row row in sheet.Skip(1))
+            {
+                T obj = Activator.CreateInstance<T>();
+                int headerIndex = -1;
+                foreach (Cell cell in row.Select(x => (Cell)x))
+                {
+                    headerIndex++;
+                    var pInfo = headers[headerNames[headerIndex]].Value;
+                    if (cell == null)
+                    {
+                        pInfo.SetValue(obj, pInfo.PropertyType.GetDefault());
+                    }
+
+                    int? index = cell.GetCellColIndex() - 1;
+                    if (index == null) break;
+                    // fill collapsed columns
+                    if (index > headerIndex)
+                        pInfo = headers[headerNames[
+                            headerIndex = Enumerable.Range(headerIndex, (int)index - headerIndex)
+                                .Aggregate(headerIndex, (i, n) =>
+                                {
+                                    pInfo = headers[headerNames[i]].Value;
+                                    pInfo.SetValue(obj, pInfo.PropertyType.GetDefault());
+                                    return n + 1;
+                                })
+                            ]].Value;
+
+
+                    try
+                    {
+                        var value = cell.GetObject(workbookPart);
+                        if (value == null)
+                        {
+                            pInfo.SetValue(obj, pInfo.PropertyType.GetDefault());
+                            continue;
+                        }
+                        pInfo.SetValue(obj, value.ConvertTo(pInfo.PropertyType));
+
+                    }
+                    catch { }
+                    
+                }
+                result.Add(obj);
+            }
+            #region finalazing
+            doc.Close();
+
+            #endregion
+
+
+            return result;
+        }
+
+
+        #region extract info
         private static Type GetDataType(this Cell cell, WorkbookPart workbookPart)
         {
 
@@ -475,8 +575,8 @@ namespace Com.H.Excel
 
             int? styleIndex = (int?)cell.StyleIndex?.Value;
             if (styleIndex == null) return cell.CellValue?.Text;
-            
-            CellFormat cellFormat = (CellFormat)workbookPart.WorkbookStylesPart.Stylesheet.CellFormats.ElementAt((int) styleIndex);
+
+            CellFormat cellFormat = (CellFormat)workbookPart.WorkbookStylesPart.Stylesheet.CellFormats.ElementAt((int)styleIndex);
             uint formatId = cellFormat.NumberFormatId.Value;
             if (formatId == (uint)Formats.DateShort || formatId == (uint)Formats.DateLong)
             {
@@ -502,7 +602,7 @@ namespace Com.H.Excel
         private static int? GetCellColIndex(this Cell cell)
             => cell?.CellReference?.Value?.ExtractAlphabet()?.ToUpper()?.
                Aggregate(0, (i, n) => 26 * i + n - 'A' + 1);
-
+        #endregion
 
         #endregion
     }
