@@ -15,6 +15,7 @@ using Com.H.IO;
 using System.Data;
 using System.Dynamic;
 using Com.H.Text;
+using Com.H.Linq;
 
 namespace Com.H.Excel
 {
@@ -74,21 +75,113 @@ namespace Com.H.Excel
 
 
         #region format types
+
+        /// <summary>
+        /// https://github.com/closedxml/closedxml/wiki/NumberFormatId-Lookup-Table
+        /// range.Style.NumberFormat.NumberFormatId = #;
+        /// **ID**** Format Code**
+        /// 0	General
+        /// 1	0
+        /// 2	0.00
+        /// 3	#,##0
+        /// 4	#,##0.00
+        /// 9	0%
+        /// 10	0.00%
+        /// 11	0.00E+00
+        /// 12	# ?/?
+        /// 13	# ??/??
+        /// 14	d/m/yyyy
+        /// 15	d-mmm-yy
+        /// 16	d-mmm
+        /// 17	mmm-yy
+        /// 18	h:mm tt
+        /// 19	h:mm:ss tt
+        /// 20	H:mm
+        /// 21	H:mm:ss
+        /// 22	m/d/yyyy H:mm
+        /// 37	#,##0 ;(#,##0)
+        /// 38	#,##0 ;[Red](#,##0)
+        /// 39	#,##0.00;(#,##0.00)
+        /// 40	#,##0.00;[Red](#,##0.00)
+        /// 45	mm:ss
+        /// 46	[h]:mm:ss
+        /// 47	mmss.0
+        /// 48	##0.0E+0
+        /// 49	@
+        /// </summary>
         private enum Formats
         {
             General = 0,
-            Number = 1,
-            Decimal = 2,
+            Integer1 = 1,
+            Decimal1 = 2,
+            Integer2 = 3,
+            Decimal2 = 4,
+            IntegerPercentage = 9,
+            DecimalPercentage = 10,
+            DecimalScientific1 = 11,
+            Date1 = 14,
+            Date2 = 15,
+            Date3 = 16,
+            Time1 = 18,
+            Time2 = 19,
+            Time3 = 20,
+            Time4 = 21,
+            DateTime1 = 22,
+            Integer3 = 37,
+            Integer4 = 38,
+            Decimal3 = 39,
+            Decimal4 = 40,
+            Time5 = 45,
+            Time6 = 46,
+            Time7 = 47,
+            DecimalScientific2 = 48,
             Currency = 164,
             Accounting = 44,
-            DateShort = 14,
-            DateLong = 165,
-            Time = 166,
-            Percentage = 10,
+            Date4 = 165,
+            Time8 = 166,
             Fraction = 12,
             Scientific = 11,
             Text = 49
         }
+
+        private static readonly uint[] DateTimeFormatIds
+            = new uint[]
+            {
+                (uint) Formats.Date1,
+                (uint) Formats.Date2,
+                (uint) Formats.Date3,
+                (uint) Formats.DateTime1,
+                (uint) Formats.Date4,
+                (uint) Formats.Time1,
+                (uint) Formats.Time2,
+                (uint) Formats.Time3,
+                (uint) Formats.Time4,
+                (uint) Formats.Time5,
+                (uint) Formats.Time6,
+                (uint) Formats.Time7,
+                (uint) Formats.Time8
+            };
+        private static readonly uint[] IntFormatIds
+            = new uint[]
+            {
+                (uint) Formats.Integer1,
+                (uint) Formats.Integer2,
+                (uint) Formats.Integer3,
+                (uint) Formats.Integer4,
+                (uint) Formats.IntegerPercentage,
+            };
+
+        private static readonly uint[] DecimalFormatIds
+            = new uint[]
+            {
+                (uint) Formats.Decimal1,
+                (uint) Formats.Decimal2,
+                (uint) Formats.Decimal3,
+                (uint) Formats.Decimal4,
+                (uint) Formats.DecimalPercentage,
+                (uint) Formats.DecimalScientific1,
+                (uint) Formats.DecimalScientific2
+            };
 
         #endregion
 
@@ -342,7 +435,7 @@ namespace Com.H.Excel
             }
         }
 
-
+        
 
         #endregion
 
@@ -394,7 +487,7 @@ namespace Com.H.Excel
                         headerIndex++;
                         var headerName = headerNames[headerIndex];
                         Type type =
-                            (headers[headerName] = cell.GetDataType(workbookPart)
+                            (headers[headerName] = cell.GetDataTypeOtherThanString(workbookPart)
                             ?? headers[headerName] ?? typeof(string));
 
                         if (cell == null)
@@ -412,7 +505,7 @@ namespace Com.H.Excel
                                 .Aggregate(headerIndex, (i, n) =>
                                 {
                                     d.TryAdd(headerNames[i],
-                                        (headers[headerNames[i]] = cell.GetDataType(workbookPart)
+                                        (headers[headerNames[i]] = cell.GetDataTypeOtherThanString(workbookPart)
                                         ?? headers[headerNames[i]] ?? typeof(string)).GetDefault());
                                     return n + 1;
                                 })];
@@ -456,49 +549,40 @@ namespace Com.H.Excel
             var sheet = ((WorksheetPart)workbookPart.GetPartById(sheetId))?.Worksheet?.GetFirstChild<SheetData>();
             if (sheet == null) return null;
 
-            var typeProperties = typeof(T).GetCachedProperties().ToDictionary(key => key.Name, value => value.Info);
-
-
-
-
             var headers = sheet.FirstOrDefault()?
-            .Select(x => ((Cell)x).GetText(workbookPart)).Intersect(typeProperties.Keys, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(key => key, value => typeProperties.First(x => x.Key.EqualsIgnoreCase(value)));
+            .Select(x => ((Cell)x).GetText(workbookPart))
+            .LeftJoin(typeof(T).GetCachedProperties(),
+                e => e?.ToUpperInvariant(),
+                t => t.Name?.ToUpperInvariant(),
+                (e, p) => new { Excel = e, PInfo = p.Info }
+            ).ToList();
 
             if (headers == null || headers.Count < 1) return null;
-
-
-            List<string> headerNames = headers.Keys?.ToList();
 
             List<T> result = new();
             foreach (Row row in sheet.Skip(1))
             {
                 T obj = Activator.CreateInstance<T>();
-                int headerIndex = -1;
+                int lastIndex = 0;
                 foreach (Cell cell in row.Select(x => (Cell)x))
                 {
-                    headerIndex++;
-                    var pInfo = headers[headerNames[headerIndex]].Value;
-                    if (cell == null)
-                    {
-                        pInfo.SetValue(obj, pInfo.PropertyType.GetDefault());
-                    }
-
-                    int? index = cell.GetCellColIndex() - 1;
+                    int? index = cell?.GetCellColIndex() - 1;
                     if (index == null) break;
+
                     // fill collapsed columns
-                    if (index > headerIndex)
-                        pInfo = headers[headerNames[
-                            headerIndex = Enumerable.Range(headerIndex, (int)index - headerIndex)
-                                .Aggregate(headerIndex, (i, n) =>
+                    if (index > lastIndex)
+                        lastIndex = Enumerable.Range(lastIndex, (int)index - lastIndex)
+                                .Aggregate(lastIndex, (i, n) =>
                                 {
-                                    pInfo = headers[headerNames[i]].Value;
-                                    pInfo.SetValue(obj, pInfo.PropertyType.GetDefault());
+                                    var pInfo = headers[i]?.PInfo;
+                                    if (pInfo != null)
+                                        pInfo.SetValue(obj, pInfo.PropertyType.GetDefault());
                                     return n + 1;
-                                })
-                            ]].Value;
+                                });
 
 
+                    var pInfo = headers[lastIndex++].PInfo;
+                    if (pInfo == null) continue;
                     try
                     {
                         var value = cell.GetObject(workbookPart);
@@ -526,9 +610,8 @@ namespace Com.H.Excel
 
 
         #region extract info
-        private static Type GetDataType(this Cell cell, WorkbookPart workbookPart)
+        private static Type GetDataTypeOtherThanString(this Cell cell, WorkbookPart workbookPart)
         {
-
             if (cell?.DataType?.Value != null) return cell.DataType.Value.GetTypeFromOpenXml();
 
             if (cell?.StyleIndex?.Value == null) return null;
@@ -537,15 +620,11 @@ namespace Com.H.Excel
             if (styleIndex == null) return null;
             CellFormat cellFormat = (CellFormat)workbookPart.WorkbookStylesPart.Stylesheet.CellFormats.ElementAt((int)styleIndex);
             uint formatId = cellFormat.NumberFormatId.Value;
-            return formatId switch
-            {
-                (uint)Formats.DateShort => typeof(DateTime?),
-                (uint)Formats.DateLong => typeof(DateTime?),
-                (uint)Formats.Number => typeof(decimal?),
-                (uint)Formats.Decimal => typeof(decimal?),
-                _ => null
-            };
 
+            if (DateTimeFormatIds.Contains(formatId)) return typeof(DateTime?);
+            if (IntFormatIds.Contains(formatId)) return typeof(int?);
+            if (DecimalFormatIds.Contains(formatId)) return typeof(decimal?);
+            return null;
         }
         private static string GetText(this Cell cell, WorkbookPart workbookPart)
         {
@@ -578,15 +657,14 @@ namespace Com.H.Excel
 
             CellFormat cellFormat = (CellFormat)workbookPart.WorkbookStylesPart.Stylesheet.CellFormats.ElementAt((int)styleIndex);
             uint formatId = cellFormat.NumberFormatId.Value;
-            if (formatId == (uint)Formats.DateShort || formatId == (uint)Formats.DateLong)
-            {
-                if (double.TryParse(cell.InnerText, out double oaDate))
-                    return DateTime.FromOADate(oaDate);
-            }
-            else
-            {
-                if (decimal.TryParse(cell.InnerText, out decimal d)) return d;
-            }
+            if (DateTimeFormatIds.Contains(formatId) && double.TryParse(cell.InnerText, out double oaDate))
+                return DateTime.FromOADate(oaDate);
+            else if (DecimalFormatIds.Contains(formatId)
+                && decimal.TryParse(cell.InnerText, out decimal d)
+                ) return d;
+            else if (IntFormatIds.Contains(formatId)
+                && int.TryParse(cell.InnerText, out int i)) return i;
+
             return cell.CellValue?.Text;
         }
 
