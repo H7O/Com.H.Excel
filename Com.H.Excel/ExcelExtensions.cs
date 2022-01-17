@@ -140,7 +140,7 @@ namespace Com.H.Excel
             Date4 = 165,
             Time8 = 166,
             Fraction = 12,
-            Scientific = 11,
+            // Scientific = 11,
             Text = 49
         }
 
@@ -230,6 +230,18 @@ namespace Com.H.Excel
             return path;
         }
 
+
+        public static void WriteExcel<T>(
+            this IDictionary<string, List<T>> enumerables,
+            Stream outStream,
+            bool excludeHeaders = false
+            ) where T: class
+            =>
+            WriteExcel(
+                enumerables.ToDictionary(x => x.Key, v => v.Value.AsEnumerable<object>())
+                , outStream
+                , excludeHeaders
+            );
 
         public static void WriteExcel(
             this IDictionary<string, List<dynamic>> enumerables,
