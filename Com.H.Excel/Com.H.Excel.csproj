@@ -13,16 +13,14 @@ Accepts IEnumerable of both anonymous objects and ExpandoObjects</Description>
     <RepositoryType>git</RepositoryType>
     <PackageTags>excel, openxml, dynamic, ExpandoObject, read, write</PackageTags>
     <PackageReleaseNotes>Initial release</PackageReleaseNotes>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <Version>0.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Com.H" Version="0.2.0" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="2.15.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Reference Include="Com.H">
-      <HintPath>..\..\Com.H\Com.H\bin\Release\net5.0\Com.H.dll</HintPath>
-    </Reference>
   </ItemGroup>
 
 </Project>
