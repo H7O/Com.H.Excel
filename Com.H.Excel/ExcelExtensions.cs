@@ -243,29 +243,29 @@ namespace Com.H.Excel
                 , excludeHeaders
             );
 
-        //public static void WriteExcel<T>(
-        //    this IDictionary<string, List<T>> enumerables,
-        //    Stream outStream,
-        //    bool excludeHeaders = false
-        //    ) where T : class
-        //    =>
-        //    WriteExcel(
-        //        enumerables.ToDictionary(x => x.Key, v => v.Value.AsEnumerable<object>())
-        //        , outStream
-        //        , excludeHeaders
-        //    );
+        public static void WriteExcel<T>(
+            this IDictionary<string, List<T>> enumerables,
+            Stream outStream,
+            bool excludeHeaders = false
+            ) where T : class
+            =>
+            WriteExcel(
+                enumerables.ToDictionary(x => x.Key, v => v.Value.AsEnumerable<object>())
+                , outStream
+                , excludeHeaders
+            );
 
-        //public static void WriteExcel<T>(
-        //    this IDictionary<string, IList<T>> enumerables,
-        //    Stream outStream,
-        //    bool excludeHeaders = false
-        //    ) where T : class
-        //    =>
-        //    WriteExcel(
-        //        enumerables.ToDictionary(x => x.Key, v => v.Value.AsEnumerable<object>())
-        //        , outStream
-        //        , excludeHeaders
-        //    );
+        public static void WriteExcel<T>(
+            this IDictionary<string, IList<T>> enumerables,
+            Stream outStream,
+            bool excludeHeaders = false
+            ) where T : class
+            =>
+            WriteExcel(
+                enumerables.ToDictionary(x => x.Key, v => v.Value.AsEnumerable<object>())
+                , outStream
+                , excludeHeaders
+            );
 
         public static void WriteExcel(
             this IDictionary<string, List<dynamic>> enumerables,
@@ -483,11 +483,11 @@ namespace Com.H.Excel
         /// keys represent the sheet name and the dynamic list associated to the sheet name represent the data in a dynamic (ExpandoObject) form
         /// </summary>
         /// <param name="inStream">input stream to the excel document</param>
-        /// <param name="skipHeaders"></param>
+        /// <param name="noHeaders"></param>
         /// <returns>dictionary of dynamic collections, where the dictionary
         /// keys represent the sheet name and the dynamic list associated to the sheet name represent the data in a dynamic (ExpandoObject) form</returns>
         public static Dictionary<string, List<dynamic>> ParseExcel(
-            this System.IO.Stream inStream, bool skipHeaders = false)
+            this System.IO.Stream inStream, bool noHeaders = false)
         {
             SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false);
             var excelSheets = doc?.WorkbookPart?.Workbook?
@@ -504,17 +504,18 @@ namespace Com.H.Excel
             {
                 result.Add(sheet.Key, new List<dynamic>());
 
-                Dictionary<string, Type> headers = skipHeaders ?
+                Dictionary<string, Type> headers = noHeaders ?
                          Enumerable.Range(0, sheet.Value.Count() - 1)
                         .Select(x => $"column_{x}")
                         .ToDictionary(key => key, value => typeof(string))
                         : sheet.Value?.FirstOrDefault()?.Select(x =>
-                         ((Cell)x).GetText(workbookPart)).ToDictionary(key => key, value => typeof(string));
+                         ((Cell)x).GetText(workbookPart))
+                        .ToDictionary(key => key, value => typeof(string));
 
                 List<string> headerNames = headers.Keys?.ToList();
 
 
-                foreach (Row row in sheet.Value.Skip(skipHeaders ? 0 : 1))
+                foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1))
                 {
                     ExpandoObject d = new();
                     int headerIndex = -1;
@@ -532,12 +533,13 @@ namespace Com.H.Excel
                             continue;
                         }
 
-                        int? index = cell.GetCellColIndex() - 1;
-                        if (index == null) break;
+                        int? index = (cell.GetCellColIndex() - 1)??headerIndex;
+                        // if (index == null) break;
 
                         // fill collapsed columns
                         if (index > headerIndex)
-                            headerName = headerNames[headerIndex = Enumerable.Range(headerIndex, (int)index - headerIndex)
+                            headerName = headerNames[headerIndex = 
+                                Enumerable.Range(headerIndex, (int)index - headerIndex)
                                 .Aggregate(headerIndex, (i, n) =>
                                 {
                                     d.TryAdd(headerNames[i],
@@ -568,8 +570,83 @@ namespace Com.H.Excel
             return result;
         }
 
-
         public static List<T> ParseExcel<T>(
+    this System.IO.Stream inStream, string sheetName = null, bool noHeaders = false)
+        {
+            SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false);
+            var excelSheets = doc?.WorkbookPart?.Workbook?
+                    .Descendants<Sheet>();
+            WorkbookPart workbookPart = doc.WorkbookPart;
+            Dictionary<string, SheetData> sheets = excelSheets.ToDictionary(
+                key => key.Name?.ToString(), value =>
+                ((WorksheetPart)workbookPart.GetPartById(value.Id))
+                    .Worksheet.GetFirstChild<SheetData>());
+            var sheet = sheets.FirstOrDefault(x => x.Key.EqualsIgnoreCase(sheetName));
+
+            if (sheet.Equals(default(KeyValuePair<string, SheetData>)))
+                sheet = sheets.FirstOrDefault();
+
+            if (sheet.Equals(default(KeyValuePair<string, SheetData>)))
+                return null;
+            int hIndex = 0;
+            Dictionary<int, PropertyInfo> headers = noHeaders ?
+                    typeof(T).GetCachedProperties()?
+                    .ToDictionary(k => hIndex++, v => v.Info)
+                     : sheet.Value.FirstOrDefault()?
+                    .Select(x => ((Cell)x).GetText(workbookPart))
+                    .LeftJoin(typeof(T).GetCachedProperties(),
+                        e => e?.ToUpperInvariant(),
+                        p => p.Name?.ToUpperInvariant(),
+                        (e, p) => new { Index = hIndex++, Info = p.Info}
+                    ).ToDictionary(k => k.Index, v => v.Info);
+
+            if (headers is null || headers.Count < 1) return null;
+
+
+            List<T> result = new();
+            var hCount = headers.Count;
+
+            foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1))
+            {
+                T d = Activator.CreateInstance<T>();
+                result.Add(d);
+
+                
+                int index = -1;
+                foreach (Cell cell in row.Select(x => (Cell)x))
+                {
+                    if ((index = (cell.GetCellColIndex() - 1) ?? ++index)
+                        > hCount
+                        && noHeaders) break;
+
+                    var pInfo = headers[index];
+                    if (pInfo is null) continue;
+
+                    try
+                    {
+                        var value = cell.GetObject(workbookPart);
+                        if (value == null)
+                        {
+                            pInfo.SetValue(d, pInfo.PropertyType.GetDefault());
+                            continue;
+                        }
+                        pInfo.SetValue(d, value.ConvertTo(pInfo.PropertyType));
+                    }
+                    catch { }
+
+                }
+            }
+            #region finalazing
+            doc.Close();
+
+            #endregion
+
+
+            return result;
+        }
+
+
+        public static List<T> ParseExcelDepricated<T>(
             this System.IO.Stream inStream, string sheetName = null)
         {
             SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false);
@@ -602,8 +679,7 @@ namespace Com.H.Excel
                 int lastIndex = 0;
                 foreach (Cell cell in row.Select(x => (Cell)x))
                 {
-                    int? index = cell?.GetCellColIndex() - 1;
-                    if (index == null) break;
+                    int? index = cell?.GetCellColIndex()??lastIndex - 1;
 
                     // fill collapsed columns
                     if (index > lastIndex)
@@ -716,6 +792,9 @@ namespace Com.H.Excel
         private static int? GetCellColIndex(this Cell cell)
             => cell?.CellReference?.Value?.ExtractAlphabet()?.ToUpper()?.
                Aggregate(0, (i, n) => 26 * i + n - 'A' + 1);
+
+
+
         #endregion
 
         #endregion
