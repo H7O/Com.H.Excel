@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>Com.H.Excel</RootNamespace>
+    <AssemblyName>Com.H.Excel</AssemblyName>
+    <FileVersion></FileVersion>
+    <AssemblyVersion>2.0.0.1</AssemblyVersion>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+    <Copyright>Hussein Al Bayati</Copyright>
+    <Authors>Hussein Al Bayati</Authors>
+    <ApplicationIcon>128x128.ico</ApplicationIcon>
+    <PackageIcon>128x128.jpg</PackageIcon>
+    <PackageReadmeFile>nuget.md</PackageReadmeFile>
+    <Version>2.0.0.1</Version>
+    <PackageReleaseNotes>Support for .NET Standard 2.0    </PackageReleaseNotes>
+    <PackageTags>excel, openxml, dynamic, ExpandoObject</PackageTags>
+    <Description>Allows for easy creation and consumption of xlsx files. E.g. extensions for exporting an IDictionary&lt;string, IEnumerable&lt;dynamic&gt;&gt; to multi-sheet xlsx document file or IO stream. And also extensions for reading xlsx into IDictionary&lt;string, dynamic&gt;&gt;.
+Accepts IEnumerable of both anonymous objects and ExpandoObjects.    </Description>
+    <PackageProjectUrl>https://github.com/H7O/Com.H.Excel</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/H7O/Com.H.Excel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+
+
+
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="128x128.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\128x128.jpg">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Include="..\nuget.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="2.17.1" />
+  </ItemGroup>
+
+</Project>

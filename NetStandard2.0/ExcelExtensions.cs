@@ -1,26 +1,19 @@
-﻿using Com.H.Reflection;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Com.H.Xml;
 using System.Reflection;
 using DocumentFormat.OpenXml.Spreadsheet;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using System.Globalization;
-using Com.H.IO;
-using System.Data;
 using System.Dynamic;
-using Com.H.Text;
-using Com.H.Linq;
 
 namespace Com.H.Excel
 {
     public static class ExcelExtensions
     {
+
         #region OpenXml Excel type dictionary
         private static Dictionary<Type, CellValues> OpenXmlTypesDic { get; set; }
         = new Dictionary<Type, CellValues>()
@@ -213,7 +206,6 @@ namespace Com.H.Excel
                 Guid.NewGuid().ToString() + ".xlsx"
                 : preferredTempFileName)).EnsureParentDirectory();
 
-
             if (File.Exists(path))
             {
                 try
@@ -222,6 +214,7 @@ namespace Com.H.Excel
                 }
                 catch { }
             }
+
             using (StreamWriter f = File.CreateText(path))
             {
                 enumerables.WriteExcel(f.BaseStream);
@@ -293,7 +286,7 @@ namespace Com.H.Excel
 
         private static void AddDateStyle(this WorkbookPart workbookPart)
         {
-            Stylesheet styleSheet = new();
+            Stylesheet styleSheet = new Stylesheet();
 
             var cf1 = new CellFormat
             {
@@ -322,7 +315,7 @@ namespace Com.H.Excel
             workbookPart.AddNewPart<WorkbookStylesPart>();
             workbookPart.WorkbookStylesPart.Stylesheet = styleSheet;
 
-            CellStyles css = new();
+            CellStyles css = new CellStyles();
             var cs = new CellStyle
             {
                 FormatId = 0,
@@ -341,12 +334,9 @@ namespace Com.H.Excel
             try
             {
                 #region initial settings
-
                 string tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".xlsx");
-
                 SpreadsheetDocument spreadsheetDocument =
                     SpreadsheetDocument.Create(tempPath, SpreadsheetDocumentType.Workbook, true);
-
                 // Add a WorkbookPart to the document.
                 WorkbookPart workbookpart = spreadsheetDocument.AddWorkbookPart();
                 workbookpart.AddDateStyle();
@@ -361,7 +351,6 @@ namespace Com.H.Excel
                 #endregion
 
                 #region looping sheets
-
                 var sheetNumber = 0;
                 foreach (var enumerableSheet in enumerables)
                 {
@@ -371,7 +360,7 @@ namespace Com.H.Excel
                     WorksheetPart worksheetPart = workbookpart.AddNewPart<WorksheetPart>();
                     worksheetPart.Worksheet = new Worksheet(new SheetData());
 
-                    Sheet sheet = new()
+                    Sheet sheet = new Sheet()
                     {
                         Id = spreadsheetDocument.WorkbookPart.GetIdOfPart(worksheetPart),
                         SheetId = (UInt32)sheetNumber,
@@ -379,19 +368,15 @@ namespace Com.H.Excel
                     };
 
                     sheets.Append(sheet);
-                    if (enumerableSheet.Value == null) continue;
-
+                    if (enumerableSheet.Value is null) continue;
                     SheetData sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
 
                     bool headersSet = false;
-
                     // looping data rows to fill excel sheet
                     foreach (var item in enumerableSheet.Value)
                     {
                         var properties = item?.GetCachedProperties()?.ToList();
-
                         if (properties == null || properties.Count < 1) continue;
-
                         #region headers
                         if (!excludeHeaders && !headersSet)
                         {
@@ -405,7 +390,6 @@ namespace Com.H.Excel
                             headersSet = true;
                         }
                         #endregion
-
 
                         Cell GetCell((string Name, PropertyInfo Info) pInfo)
                         {
@@ -428,7 +412,6 @@ namespace Com.H.Excel
                                     DataType = new EnumValue<CellValues>(CellValues.Number),
                                     StyleIndex = 1
                                 };
-
                             return new Cell()
                             {
                                 CellValue = new CellValue(valueRaw.ToString()),
@@ -436,13 +419,11 @@ namespace Com.H.Excel
                                     pInfo.Info.PropertyType.GetOpenXmlType()),
                                 StyleIndex = 0
                             };
-
+                            
                         }
-
                         #region data / filling cells (columns) within current row
                         sheetData.Append(new Row(properties
                             .Select(pInfo => GetCell(pInfo))));
-
                         #endregion
 
 
@@ -452,14 +433,17 @@ namespace Com.H.Excel
 
                 #endregion
                 #region finalizing
-
                 spreadsheetDocument.Close();
 
                 spreadsheetDocument = null;
                 try
                 {
-                    outStream.Write(File.ReadAllBytes(tempPath));
-                    outStream.Flush();
+                    using (var inStream = File.OpenRead(tempPath))
+                    {
+                        inStream.CopyTo(outStream, 32000);
+                        outStream.Flush();
+                        inStream.Close();
+                    }
                     File.Delete(tempPath);
                 }
                 catch { }
@@ -498,7 +482,7 @@ namespace Com.H.Excel
                 ((WorksheetPart)workbookPart.GetPartById(value.Id))
                     .Worksheet.GetFirstChild<SheetData>());
 
-            Dictionary<string, List<dynamic>> result = new();
+            Dictionary<string, List<dynamic>> result = new Dictionary<string, List<dynamic>>();
 
             foreach (var sheet in sheets)
             {
@@ -515,9 +499,9 @@ namespace Com.H.Excel
                 List<string> headerNames = headers.Keys?.ToList();
 
 
-                foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1))
+                foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1).Cast<Row>())
                 {
-                    ExpandoObject d = new();
+                    ExpandoObject d = new ExpandoObject();
                     int headerIndex = -1;
                     foreach (Cell cell in row.Select(x => (Cell)x))
                     {
@@ -529,7 +513,7 @@ namespace Com.H.Excel
 
                         if (cell == null)
                         {
-                            d.TryAdd(headerName, type.GetDefault());
+                            ((IDictionary<String, Object>)d)[headerName] = type.GetDefault();
                             continue;
                         }
 
@@ -542,9 +526,9 @@ namespace Com.H.Excel
                                 Enumerable.Range(headerIndex, (int)index - headerIndex)
                                 .Aggregate(headerIndex, (i, n) =>
                                 {
-                                    d.TryAdd(headerNames[i],
+                                    ((IDictionary<String, Object>)d)[headerName] = 
                                         (headers[headerNames[i]] = cell.GetDataTypeOtherThanString(workbookPart)
-                                        ?? headers[headerNames[i]] ?? typeof(string)).GetDefault());
+                                        ?? headers[headerNames[i]] ?? typeof(string)).GetDefault();
                                     return n + 1;
                                 })];
 
@@ -555,7 +539,7 @@ namespace Com.H.Excel
                             value = cell.GetObject(workbookPart); // Convert.ChangeType(cell.GetText(doc), type, CultureInfo.InvariantCulture);
                         }
                         catch { }
-                        d.TryAdd(headerName, value ?? type.GetDefault());
+                        ((IDictionary<String, Object>)d)[headerName] = value ?? type.GetDefault();
 
                     }
                     result[sheet.Key].Add(d);
@@ -597,16 +581,16 @@ namespace Com.H.Excel
                     .LeftJoin(typeof(T).GetCachedProperties(),
                         e => e?.ToUpperInvariant(),
                         p => p.Name?.ToUpperInvariant(),
-                        (e, p) => new { Index = hIndex++, Info = p.Info}
+                        (e, p) => new { Index = hIndex++, p.Info}
                     ).ToDictionary(k => k.Index, v => v.Info);
 
             if (headers is null || headers.Count < 1) return null;
 
 
-            List<T> result = new();
+            List<T> result = new List<T>();
             var hCount = headers.Count;
 
-            foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1))
+            foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1).Cast<Row>())
             {
                 T d = Activator.CreateInstance<T>();
                 result.Add(d);
@@ -672,8 +656,8 @@ namespace Com.H.Excel
 
             if (headers == null || headers.Count < 1) return null;
 
-            List<T> result = new();
-            foreach (Row row in sheet.Skip(1))
+            List<T> result = new List<T>();
+            foreach (Row row in sheet.Skip(1).Cast<Row>())
             {
                 T obj = Activator.CreateInstance<T>();
                 int lastIndex = 0;
@@ -686,9 +670,9 @@ namespace Com.H.Excel
                         lastIndex = Enumerable.Range(lastIndex, (int)index - lastIndex)
                                 .Aggregate(lastIndex, (i, n) =>
                                 {
-                                    var pInfo = headers[i]?.PInfo;
-                                    if (pInfo != null)
-                                        pInfo.SetValue(obj, pInfo.PropertyType.GetDefault());
+                                    var pInfoInternal = headers[i]?.PInfo;
+                                    if (pInfoInternal != null)
+                                        pInfoInternal.SetValue(obj, pInfoInternal.PropertyType.GetDefault());
                                     return n + 1;
                                 });
 
@@ -798,5 +782,27 @@ namespace Com.H.Excel
         #endregion
 
         #endregion
+
+
+
+        //#region helper functions to keep this library as stand-alone
+        //#region taken from from Com.H.IO
+        //private static string EnsureParentDirectory(this string path)
+        //{
+        //    if (string.IsNullOrEmpty(path)) throw new ArgumentNullException(nameof(path));
+        //    if (path.IndexOfAny(Path.GetInvalidPathChars()) != -1)
+        //        throw new ArgumentException($"{nameof(path)} contains invalid characters.");
+        //    var parentFolder = Directory.GetParent(path)?.FullName;
+        //    if (parentFolder == null) throw new ArgumentException($"Can't find parent folder of '{path}'");
+        //    if (Directory.Exists(parentFolder))
+        //        return path;
+        //    Directory.CreateDirectory(parentFolder);
+        //    return path;
+        //}
+
+        //#endregion
+
+
+
     }
 }
