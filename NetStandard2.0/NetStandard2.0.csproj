@@ -5,7 +5,7 @@
     <RootNamespace>Com.H.Excel</RootNamespace>
     <AssemblyName>Com.H.Excel</AssemblyName>
     <FileVersion></FileVersion>
-    <AssemblyVersion>2.0.0.1</AssemblyVersion>
+    <AssemblyVersion>2.0.0.2</AssemblyVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
     <Copyright>Hussein Al Bayati</Copyright>
@@ -13,8 +13,8 @@
     <ApplicationIcon>128x128.ico</ApplicationIcon>
     <PackageIcon>128x128.jpg</PackageIcon>
     <PackageReadmeFile>nuget.md</PackageReadmeFile>
-    <Version>2.0.0.1</Version>
-    <PackageReleaseNotes>Support for .NET Standard 2.0    </PackageReleaseNotes>
+    <Version>2.0.0.2</Version>
+    <PackageReleaseNotes>Support for .NET Standard 2.0</PackageReleaseNotes>
     <PackageTags>excel, openxml, dynamic, ExpandoObject</PackageTags>
     <Description>Allows for easy creation and consumption of xlsx files. E.g. extensions for exporting an IDictionary&lt;string, IEnumerable&lt;dynamic&gt;&gt; to multi-sheet xlsx document file or IO stream. And also extensions for reading xlsx into IDictionary&lt;string, dynamic&gt;&gt;.
 Accepts IEnumerable of both anonymous objects and ExpandoObjects.    </Description>

@@ -354,6 +354,8 @@ namespace Com.H.Excel
                 var sheetNumber = 0;
                 foreach (var enumerableSheet in enumerables)
                 {
+                    if (string.IsNullOrEmpty(enumerableSheet.Key)) 
+                        throw new InvalidDataException("Empty sheet name in Excel is not allowed. Make sure the IDictionary<string, IEnumerable<object>> enumerables you're passing has non-empty and unique keys");
                     sheetNumber++;
 
                     // Add a WorksheetPart to the WorkbookPart.
@@ -782,25 +784,6 @@ namespace Com.H.Excel
         #endregion
 
         #endregion
-
-
-
-        //#region helper functions to keep this library as stand-alone
-        //#region taken from from Com.H.IO
-        //private static string EnsureParentDirectory(this string path)
-        //{
-        //    if (string.IsNullOrEmpty(path)) throw new ArgumentNullException(nameof(path));
-        //    if (path.IndexOfAny(Path.GetInvalidPathChars()) != -1)
-        //        throw new ArgumentException($"{nameof(path)} contains invalid characters.");
-        //    var parentFolder = Directory.GetParent(path)?.FullName;
-        //    if (parentFolder == null) throw new ArgumentException($"Can't find parent folder of '{path}'");
-        //    if (Directory.Exists(parentFolder))
-        //        return path;
-        //    Directory.CreateDirectory(parentFolder);
-        //    return path;
-        //}
-
-        //#endregion
 
 
 
