@@ -573,7 +573,7 @@ namespace Com.H.Excel
                 sheet = sheets.FirstOrDefault();
 
             if (sheet.Equals(default(KeyValuePair<string, SheetData>)))
-                return null;
+                return Enumerable.Empty<T>().ToList();
             int hIndex = 0;
             Dictionary<int, PropertyInfo> headers = noHeaders ?
                     typeof(T).GetCachedProperties()?
@@ -586,7 +586,7 @@ namespace Com.H.Excel
                         (e, p) => new { Index = hIndex++, p.Info}
                     ).ToDictionary(k => k.Index, v => v.Info);
 
-            if (headers is null || headers.Count < 1) return null;
+            if (headers is null || headers.Count < 1) return Enumerable.Empty<T>().ToList();
 
 
             List<T> result = new List<T>();
@@ -644,9 +644,9 @@ namespace Com.H.Excel
                 string.IsNullOrWhiteSpace(sheetName)
                 || sheetName.EqualsIgnoreCase(x.Name))?.Id;
 
-            if (sheetId == null) return null;
+            if (sheetId == null) return Enumerable.Empty<T>().ToList();
             var sheet = ((WorksheetPart)workbookPart.GetPartById(sheetId))?.Worksheet?.GetFirstChild<SheetData>();
-            if (sheet == null) return null;
+            if (sheet == null) return Enumerable.Empty<T>().ToList();
 
             var headers = sheet.FirstOrDefault()?
             .Select(x => ((Cell)x).GetText(workbookPart))
@@ -656,7 +656,7 @@ namespace Com.H.Excel
                 (e, p) => new { Excel = e, PInfo = p.Info }
             ).ToList();
 
-            if (headers == null || headers.Count < 1) return null;
+            if (headers == null || headers.Count < 1) return Enumerable.Empty<T>().ToList();
 
             List<T> result = new List<T>();
             foreach (Row row in sheet.Skip(1).Cast<Row>())
