@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
@@ -14,7 +14,7 @@
     <PackageIcon>128x128.jpg</PackageIcon>
     <PackageReadmeFile>nuget.md</PackageReadmeFile>
     <Version>2.0.0.2</Version>
-    <PackageReleaseNotes>Support for .NET Standard 2.0</PackageReleaseNotes>
+    <PackageReleaseNotes>Maintenance release</PackageReleaseNotes>
     <PackageTags>excel, openxml, dynamic, ExpandoObject</PackageTags>
     <Description>Allows for easy creation and consumption of xlsx files. E.g. extensions for exporting an IDictionary&lt;string, IEnumerable&lt;dynamic&gt;&gt; to multi-sheet xlsx document file or IO stream. And also extensions for reading xlsx into IDictionary&lt;string, dynamic&gt;&gt;.
 Accepts IEnumerable of both anonymous objects and ExpandoObjects.</Description>
