@@ -5,7 +5,7 @@
     <RootNamespace>Com.H.Excel</RootNamespace>
     <AssemblyName>Com.H.Excel</AssemblyName>
     <FileVersion></FileVersion>
-    <AssemblyVersion>2.0.0.3</AssemblyVersion>
+    <AssemblyVersion>2.0.0.4</AssemblyVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
     <Copyright>Hussein Al Bayati</Copyright>

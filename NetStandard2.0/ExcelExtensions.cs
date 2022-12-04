@@ -189,7 +189,50 @@ namespace Com.H.Excel
             return new FileStream(excelOutputPath, FileMode.Open, FileAccess.Read, FileShare.None, 4096, FileOptions.DeleteOnClose);
         }
 
-        public static string ToExcelTempFile(
+        /// <summary>
+        /// Generate a single sheet excel file from IEnumerable with a sheet default name is set to "Sheet1"
+        /// </summary>
+        /// <param name="enumerable"></param>
+        /// <param name="excelOutputFilePath"></param>
+        /// <exception cref="ArgumentNullException"></exception>
+        public static void ToExcelFile(
+            this IEnumerable<object> enumerable,
+            string excelOutputFilePath
+            )
+        {
+            if (enumerable == null)
+                throw new ArgumentNullException(nameof(enumerable));
+            
+            if (string.IsNullOrWhiteSpace(excelOutputFilePath))
+                throw new ArgumentNullException(nameof(excelOutputFilePath));
+
+            if (File.Exists(excelOutputFilePath))
+                File.Delete(excelOutputFilePath);
+
+            var enumerables = new Dictionary<string, IEnumerable<object>>()
+            {
+                { "Sheet1", enumerable }
+            };
+            enumerables.ToExcelFile(excelOutputFilePath);
+        }
+
+        public static void ToExcelFile(
+            this IDictionary<string, IEnumerable<object>> enumerables,
+            string excelOutputFilePath
+            )
+        {
+            if (string.IsNullOrWhiteSpace(excelOutputFilePath))
+                throw new ArgumentNullException(nameof(excelOutputFilePath));
+            if (File.Exists(excelOutputFilePath))
+                File.Delete(excelOutputFilePath);
+            string folderPath = Path.GetDirectoryName(excelOutputFilePath);
+            if (!Directory.Exists(folderPath))
+                Directory.CreateDirectory(folderPath);
+            string fileName = Path.GetFileName(excelOutputFilePath);
+            enumerables.ToExcelTempFile(folderPath, fileName);
+
+        }
+        private static string ToExcelTempFile(
             this IDictionary<string, IEnumerable<object>> enumerables,
             string preferredTempFolderPath = null,
             string preferredTempFileName = null
@@ -326,6 +369,34 @@ namespace Com.H.Excel
             styleSheet.Append(css);
         }
 
+        /// <summary>
+        /// Write excel file to a stream having a single sheet represented by the data from IEnumerable
+        /// </summary>
+        /// <param name="enumerable"></param>
+        /// <param name="outStream"></param>
+        /// <param name="excludeHeaders"></param>
+        /// <exception cref="ArgumentNullException"></exception>
+        public static void WriteExcel(
+                this IEnumerable<object> enumerable,
+                Stream outStream,
+                bool excludeHeaders = false
+                )
+        {
+            if (enumerable == null)
+                throw new ArgumentNullException(nameof(enumerable));
+            if (outStream == null) throw new ArgumentNullException(nameof(outStream));
+            
+            WriteExcel(
+            new Dictionary<string, IEnumerable<object>>()
+                        {
+                            { "Sheet1", enumerable }
+                        },
+                    outStream,
+                    excludeHeaders);
+        }
+
+
+        // root implementation
         public static void WriteExcel(
             this IDictionary<string, IEnumerable<object>> enumerables,
             System.IO.Stream outStream,
@@ -354,7 +425,7 @@ namespace Com.H.Excel
                 var sheetNumber = 0;
                 foreach (var enumerableSheet in enumerables)
                 {
-                    if (string.IsNullOrEmpty(enumerableSheet.Key)) 
+                    if (string.IsNullOrEmpty(enumerableSheet.Key))
                         throw new InvalidDataException("Empty sheet name in Excel is not allowed. Make sure the IDictionary<string, IEnumerable<object>> enumerables you're passing has non-empty and unique keys");
                     sheetNumber++;
 
@@ -421,7 +492,7 @@ namespace Com.H.Excel
                                     pInfo.Info.PropertyType.GetOpenXmlType()),
                                 StyleIndex = 0
                             };
-                            
+
                         }
                         #region data / filling cells (columns) within current row
                         sheetData.Append(new Row(properties
@@ -457,7 +528,7 @@ namespace Com.H.Excel
             }
         }
 
-        
+
 
         #endregion
 
@@ -519,16 +590,16 @@ namespace Com.H.Excel
                             continue;
                         }
 
-                        int? index = (cell.GetCellColIndex() - 1)??headerIndex;
+                        int? index = (cell.GetCellColIndex() - 1) ?? headerIndex;
                         // if (index == null) break;
 
                         // fill collapsed columns
                         if (index > headerIndex)
-                            headerName = headerNames[headerIndex = 
+                            headerName = headerNames[headerIndex =
                                 Enumerable.Range(headerIndex, (int)index - headerIndex)
                                 .Aggregate(headerIndex, (i, n) =>
                                 {
-                                    ((IDictionary<String, Object>)d)[headerName] = 
+                                    ((IDictionary<String, Object>)d)[headerName] =
                                         (headers[headerNames[i]] = cell.GetDataTypeOtherThanString(workbookPart)
                                         ?? headers[headerNames[i]] ?? typeof(string)).GetDefault();
                                     return n + 1;
@@ -583,7 +654,7 @@ namespace Com.H.Excel
                     .LeftJoin(typeof(T).GetCachedProperties(),
                         e => e?.ToUpperInvariant(),
                         p => p.Name?.ToUpperInvariant(),
-                        (e, p) => new { Index = hIndex++, p.Info}
+                        (e, p) => new { Index = hIndex++, p.Info }
                     ).ToDictionary(k => k.Index, v => v.Info);
 
             if (headers is null || headers.Count < 1) return Enumerable.Empty<T>().ToList();
@@ -597,7 +668,7 @@ namespace Com.H.Excel
                 T d = Activator.CreateInstance<T>();
                 result.Add(d);
 
-                
+
                 int index = -1;
                 foreach (Cell cell in row.Select(x => (Cell)x))
                 {
@@ -665,7 +736,7 @@ namespace Com.H.Excel
                 int lastIndex = 0;
                 foreach (Cell cell in row.Select(x => (Cell)x))
                 {
-                    int? index = cell?.GetCellColIndex()??lastIndex - 1;
+                    int? index = cell?.GetCellColIndex() ?? lastIndex - 1;
 
                     // fill collapsed columns
                     if (index > lastIndex)
@@ -693,7 +764,7 @@ namespace Com.H.Excel
 
                     }
                     catch { }
-                    
+
                 }
                 result.Add(obj);
             }
