@@ -179,6 +179,41 @@ namespace Com.H.Excel
         #endregion
 
         #region excel generation
+
+        /// <summary>
+        /// Returns a stream reader to a temp excel file that gets deleted once the stream is closed.
+        /// </summary>
+        /// <param name="enumerable"></param>
+        /// <param name="preferredTempFolderPath"></param>
+        /// <param name="preferredTempFileName"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentNullException"></exception>
+        public static Stream ToExcelReader(
+            IEnumerable<object> enumerable,
+            string preferredTempFolderPath = null,
+            string preferredTempFileName = null
+            )
+        {
+            if (enumerable == null)
+                throw new ArgumentNullException(nameof(enumerable));
+            var enumerables = new Dictionary<string, IEnumerable<object>>()
+            {
+                { "Sheet1", enumerable }
+            };
+
+            return ToExcelReader(
+                enumerables,
+                preferredTempFolderPath,
+                preferredTempFileName
+                );
+        }
+        /// <summary>
+        /// Returns a stream reader to a temp excel file that gets deleted once the stream is closed.
+        /// </summary>
+        /// <param name="enumerables"></param>
+        /// <param name="preferredTempFolderPath"></param>
+        /// <param name="preferredTempFileName"></param>
+        /// <returns></returns>
         public static Stream ToExcelReader(
             this IDictionary<string, IEnumerable<object>> enumerables,
             string preferredTempFolderPath = null,
