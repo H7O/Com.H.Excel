@@ -14,7 +14,7 @@ dotnet add package Com.H.Excel
 
 ### Writing Excel
 
-#### Example 1
+#### Sample 1
 Writing a single sheet excel
 
 ```csharp
@@ -29,7 +29,7 @@ var list = new List<object>() {
 list.ToExcelFile("c:/temp/excel/excel01.xlsx");
 ```
 
-#### Example 2
+#### Sample 2
 Writing multi-sheeet excel.
 
 ```csharp
@@ -54,7 +54,7 @@ var sheets = new Dictionary<string, IEnumerable<object>>() {
 sheets.ToExcelFile("c:/temp/excel/excel02.xlsx");
 ```
 
-#### Example 3
+#### Sample 3
 Getting a stream reader to a generated excel temp file that gets automatically deleted once the reader is closed.
 
 ```csharp
@@ -69,7 +69,7 @@ var stream = list.ToExcelStream();
 
 
 ### Reading Excel
-#### Example 4
+#### Sample 1
 Reading a single sheet in an excel file
 
 ```csharp
@@ -90,7 +90,7 @@ using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read,
 }
 ```
 
-#### Example 5
+#### Sample 2
 Reading all sheets in an excel file
 
 ```csharp

@@ -3,15 +3,15 @@ Kindly visit the project's github page for documentation [https://github.com/H7O
 
 ## How to use
 
-### Examle 1
+### Writing Excel
+
+#### Sample 1
 Writing a single sheet excel
 
 ```csharp
 using Com.H.Excel;
-
 // Note: you can use a specific class instead of anonymous object. 
 // e.g. new List<Person>()
-
 var list = new List<object>() {
 	new { Name = "John", Age = 20 },
 	new { Name = "Jane", Age = 21 },
@@ -20,7 +20,7 @@ var list = new List<object>() {
 list.ToExcelFile("c:/temp/excel/excel01.xlsx");
 ```
 
-### Example 2
+#### Sample 2
 Writing multi-sheeet excel.
 
 ```csharp
@@ -45,7 +45,7 @@ var sheets = new Dictionary<string, IEnumerable<object>>() {
 sheets.ToExcelFile("c:/temp/excel/excel02.xlsx");
 ```
 
-### Example 3
+#### Sample 3
 Getting a stream reader to a generated excel temp file that gets automatically deleted once the reader is closed.
 
 ```csharp
@@ -58,7 +58,9 @@ var list = new List<object>() {
 var stream = list.ToExcelStream();
 ```
 
-### Example 4
+
+### Reading Excel
+#### Sample 1
 Reading a single sheet in an excel file
 
 ```csharp
@@ -79,7 +81,7 @@ using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read,
 }
 ```
 
-### Example 5
+#### Sample 2
 Reading all sheets in an excel file
 
 ```csharp
