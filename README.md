@@ -12,7 +12,9 @@ dotnet add package Com.H.Excel
 
 ## How to use
 
-### Examle 1
+### Writing Excel
+
+#### Example 1
 Writing a single sheet excel
 
 ```csharp
@@ -27,7 +29,7 @@ var list = new List<object>() {
 list.ToExcelFile("c:/temp/excel/excel01.xlsx");
 ```
 
-### Example 2
+#### Example 2
 Writing multi-sheeet excel.
 
 ```csharp
@@ -52,7 +54,7 @@ var sheets = new Dictionary<string, IEnumerable<object>>() {
 sheets.ToExcelFile("c:/temp/excel/excel02.xlsx");
 ```
 
-### Example 3
+#### Example 3
 Getting a stream reader to a generated excel temp file that gets automatically deleted once the reader is closed.
 
 ```csharp
@@ -65,7 +67,9 @@ var list = new List<object>() {
 var stream = list.ToExcelStream();
 ```
 
-### Example 4
+
+### Reading Excel
+#### Example 4
 Reading a single sheet in an excel file
 
 ```csharp
@@ -86,7 +90,7 @@ using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read,
 }
 ```
 
-### Example 5
+#### Example 5
 Reading all sheets in an excel file
 
 ```csharp
