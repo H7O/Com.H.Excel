@@ -8,6 +8,7 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using System.Globalization;
 using System.Dynamic;
+using System.Runtime.CompilerServices;
 
 namespace Com.H.Excel
 {
@@ -180,6 +181,29 @@ namespace Com.H.Excel
 
         #region excel generation
 
+
+        public static Stream ToExcelStream(
+            List<object> list,
+            string preferredTempFolderPath = null,
+            string preferredTempFileName = null
+            )
+        {
+            if (list is null)
+                throw new ArgumentNullException(nameof(list));
+            return ToExcelStream(list.AsEnumerable(), preferredTempFolderPath, preferredTempFileName);
+        }
+
+        public static Stream ToExcelStream(
+            IList<object> list,
+            string preferredTempFolderPath = null,
+            string preferredTempFileName = null
+            )
+        {
+            if (list is null)
+                throw new ArgumentNullException(nameof(list));
+            return ToExcelStream(list.AsEnumerable(), preferredTempFolderPath, preferredTempFileName);
+        }
+
         /// <summary>
         /// Returns a stream reader to a temp excel file that gets deleted once the stream is closed.
         /// </summary>
@@ -188,8 +212,8 @@ namespace Com.H.Excel
         /// <param name="preferredTempFileName"></param>
         /// <returns></returns>
         /// <exception cref="ArgumentNullException"></exception>
-        public static Stream ToExcelReader(
-            IEnumerable<object> enumerable,
+        public static Stream ToExcelStream(
+            this IEnumerable<object> enumerable,
             string preferredTempFolderPath = null,
             string preferredTempFileName = null
             )
@@ -201,7 +225,7 @@ namespace Com.H.Excel
                 { "Sheet1", enumerable }
             };
 
-            return ToExcelReader(
+            return ToExcelStream(
                 enumerables,
                 preferredTempFolderPath,
                 preferredTempFileName
@@ -214,7 +238,7 @@ namespace Com.H.Excel
         /// <param name="preferredTempFolderPath"></param>
         /// <param name="preferredTempFileName"></param>
         /// <returns></returns>
-        public static Stream ToExcelReader(
+        public static Stream ToExcelStream(
             this IDictionary<string, IEnumerable<object>> enumerables,
             string preferredTempFolderPath = null,
             string preferredTempFileName = null
@@ -237,7 +261,7 @@ namespace Com.H.Excel
         {
             if (enumerable == null)
                 throw new ArgumentNullException(nameof(enumerable));
-            
+
             if (string.IsNullOrWhiteSpace(excelOutputFilePath))
                 throw new ArgumentNullException(nameof(excelOutputFilePath));
 
@@ -420,7 +444,7 @@ namespace Com.H.Excel
             if (enumerable == null)
                 throw new ArgumentNullException(nameof(enumerable));
             if (outStream == null) throw new ArgumentNullException(nameof(outStream));
-            
+
             WriteExcel(
             new Dictionary<string, IEnumerable<object>>()
                         {
@@ -662,8 +686,15 @@ namespace Com.H.Excel
             return result;
         }
 
-        public static List<T> ParseExcel<T>(
-    this System.IO.Stream inStream, string sheetName = null, bool noHeaders = false)
+
+        //public static IEnumerable<dynamic> ParseExcelSheet(
+        //    this System.IO.Stream inStream,
+        //    string sheetName = null, bool noHeaders = false
+        //    ) => ParseExcel(inStream, sheetName, noHeaders);
+        public static IEnumerable<dynamic> ParseExcelSheet(
+            this System.IO.Stream inStream,
+            string sheetName = null, bool noHeaders = false
+            )
         {
             SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false);
             var excelSheets = doc?.WorkbookPart?.Workbook?
@@ -673,13 +704,95 @@ namespace Com.H.Excel
                 key => key.Name?.ToString(), value =>
                 ((WorksheetPart)workbookPart.GetPartById(value.Id))
                     .Worksheet.GetFirstChild<SheetData>());
-            var sheet = sheets.FirstOrDefault(x => x.Key.EqualsIgnoreCase(sheetName));
+            var sheet = sheetName is null?
+                sheets.FirstOrDefault()
+                :
+                sheets.FirstOrDefault(x => x.Key.EqualsIgnoreCase(sheetName));
+
+
+            Dictionary<string, Type> headers = noHeaders ?
+                     Enumerable.Range(0, sheet.Value.Count() - 1)
+                    .Select(x => $"column_{x}")
+                    .ToDictionary(key => key, value => typeof(string))
+                    : sheet.Value?.FirstOrDefault()?.Select(x =>
+                     ((Cell)x).GetText(workbookPart))
+                    .ToDictionary(key => key, value => typeof(string));
+
+            List<string> headerNames = headers.Keys?.ToList();
+
+
+            foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1).Cast<Row>())
+            {
+                ExpandoObject d = new ExpandoObject();
+                int headerIndex = -1;
+                foreach (Cell cell in row.Select(x => (Cell)x))
+                {
+                    headerIndex++;
+                    var headerName = headerNames[headerIndex];
+                    Type type =
+                        (headers[headerName] = cell.GetDataTypeOtherThanString(workbookPart)
+                        ?? headers[headerName] ?? typeof(string));
+
+                    if (cell == null)
+                    {
+                        ((IDictionary<String, Object>)d)[headerName] = type.GetDefault();
+                        continue;
+                    }
+
+                    int? index = (cell.GetCellColIndex() - 1) ?? headerIndex;
+                    // if (index == null) break;
+
+                    // fill collapsed columns
+                    if (index > headerIndex)
+                        headerName = headerNames[headerIndex =
+                            Enumerable.Range(headerIndex, (int)index - headerIndex)
+                            .Aggregate(headerIndex, (i, n) =>
+                            {
+                                ((IDictionary<String, Object>)d)[headerName] =
+                                    (headers[headerNames[i]] = cell.GetDataTypeOtherThanString(workbookPart)
+                                    ?? headers[headerNames[i]] ?? typeof(string)).GetDefault();
+                                return n + 1;
+                            })];
+
+                    object value = null;
+
+                    try
+                    {
+                        value = cell.GetObject(workbookPart); // Convert.ChangeType(cell.GetText(doc), type, CultureInfo.InvariantCulture);
+                    }
+                    catch { }
+                    ((IDictionary<String, Object>)d)[headerName] = value ?? type.GetDefault();
+
+                }
+                yield return d;
+
+            }
+
+            yield break;
+        }
+
+        public static IEnumerable<T> ParseExcelSheet<T>(
+            this System.IO.Stream inStream,
+            string sheetName = null,
+            bool noHeaders = false)
+        {
+            SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false);
+            var excelSheets = doc?.WorkbookPart?.Workbook?
+                    .Descendants<Sheet>();
+            WorkbookPart workbookPart = doc.WorkbookPart;
+            Dictionary<string, SheetData> sheets = excelSheets.ToDictionary(
+                key => key.Name?.ToString(), value =>
+                ((WorksheetPart)workbookPart.GetPartById(value.Id))
+                    .Worksheet.GetFirstChild<SheetData>());
+            var sheet = sheetName is null?
+                sheets.FirstOrDefault():
+                sheets.FirstOrDefault(x => x.Key.EqualsIgnoreCase(sheetName));
 
             if (sheet.Equals(default(KeyValuePair<string, SheetData>)))
                 sheet = sheets.FirstOrDefault();
 
             if (sheet.Equals(default(KeyValuePair<string, SheetData>)))
-                return Enumerable.Empty<T>().ToList();
+                yield break;
             int hIndex = 0;
             Dictionary<int, PropertyInfo> headers = noHeaders ?
                     typeof(T).GetCachedProperties()?
@@ -692,17 +805,14 @@ namespace Com.H.Excel
                         (e, p) => new { Index = hIndex++, p.Info }
                     ).ToDictionary(k => k.Index, v => v.Info);
 
-            if (headers is null || headers.Count < 1) return Enumerable.Empty<T>().ToList();
+            if (headers is null || headers.Count < 1) yield break;
 
 
-            List<T> result = new List<T>();
             var hCount = headers.Count;
 
             foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1).Cast<Row>())
             {
                 T d = Activator.CreateInstance<T>();
-                result.Add(d);
-
 
                 int index = -1;
                 foreach (Cell cell in row.Select(x => (Cell)x))
@@ -727,14 +837,15 @@ namespace Com.H.Excel
                     catch { }
 
                 }
+                yield return d;
             }
             #region finalazing
             doc.Close();
 
             #endregion
 
+            yield break;
 
-            return result;
         }
 
 
