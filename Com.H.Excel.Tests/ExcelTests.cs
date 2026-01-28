@@ -215,6 +215,105 @@ public class ExcelTests : IDisposable
     }
 
     #endregion
+
+    #region Empty/Null Cell Tests
+
+    [Fact]
+    public void ReadSheet_WithEmptyCellsInMiddle_HandlesCorrectly()
+    {
+        // This test verifies that empty cells in the middle of a row are handled correctly.
+        // OpenXml doesn't serialize empty cells, so column indexing can skip over them.
+        // The library should detect this gap and fill with null/default values.
+
+        // Arrange - Create test file with empty cells
+        // We'll write data where middle column has null to simulate empty cell
+        var originalData = new List<object>()
+        {
+            new { ColA = "A1", ColB = "B1", ColC = "C1", ColD = "D1" },
+            new { ColA = "A2", ColB = (string?)null, ColC = "C2", ColD = "D2" },  // B2 is null
+            new { ColA = "A3", ColB = "B3", ColC = (string?)null, ColD = "D3" },  // C3 is null
+            new { ColA = (string?)null, ColB = "B4", ColC = "C4", ColD = "D4" },  // A4 is null
+        };
+        var filePath = Path.Combine(_tempFolder, "empty_cells.xlsx");
+        originalData.ToExcelFile(filePath);
+
+        // Act
+        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var readData = fileStream.ParseExcelSheet("Sheet1").ToList();
+
+        // Assert
+        Assert.Equal(4, readData.Count);
+        
+        // Row 1 - all values present
+        Assert.Equal("A1", (string)readData[0].ColA);
+        Assert.Equal("B1", (string)readData[0].ColB);
+        Assert.Equal("C1", (string)readData[0].ColC);
+        Assert.Equal("D1", (string)readData[0].ColD);
+        
+        // Row 2 - B2 was null
+        Assert.Equal("A2", (string)readData[1].ColA);
+        Assert.Equal("C2", (string)readData[1].ColC);
+        Assert.Equal("D2", (string)readData[1].ColD);
+        
+        // Row 3 - C3 was null
+        Assert.Equal("A3", (string)readData[2].ColA);
+        Assert.Equal("B3", (string)readData[2].ColB);
+        Assert.Equal("D3", (string)readData[2].ColD);
+        
+        // Row 4 - A4 was null
+        Assert.Equal("B4", (string)readData[3].ColB);
+        Assert.Equal("C4", (string)readData[3].ColC);
+        Assert.Equal("D4", (string)readData[3].ColD);
+    }
+
+    [Fact]
+    public void ReadSheet_WithMultipleConsecutiveEmptyCells_HandlesCorrectly()
+    {
+        // Test multiple consecutive empty cells to ensure column index gap detection works
+        
+        // Arrange
+        var originalData = new List<object>()
+        {
+            new { Col1 = "A", Col2 = "B", Col3 = "C", Col4 = "D", Col5 = "E" },
+            new { Col1 = "X", Col2 = (string?)null, Col3 = (string?)null, Col4 = (string?)null, Col5 = "Y" },  // 3 consecutive nulls
+        };
+        var filePath = Path.Combine(_tempFolder, "consecutive_empty.xlsx");
+        originalData.ToExcelFile(filePath);
+
+        // Act
+        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var readData = fileStream.ParseExcelSheet("Sheet1").ToList();
+
+        // Assert
+        Assert.Equal(2, readData.Count);
+        Assert.Equal("X", (string)readData[1].Col1);
+        Assert.Equal("Y", (string)readData[1].Col5);
+    }
+
+    [Fact]
+    public void ReadSheet_WithEmptyLastCells_HandlesCorrectly()
+    {
+        // Empty cells at the end of a row
+
+        // Arrange
+        var originalData = new List<object>()
+        {
+            new { First = "A", Second = "B", Third = "C" },
+            new { First = "X", Second = (string?)null, Third = (string?)null },  // Last 2 cells empty
+        };
+        var filePath = Path.Combine(_tempFolder, "empty_last.xlsx");
+        originalData.ToExcelFile(filePath);
+
+        // Act
+        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var readData = fileStream.ParseExcelSheet("Sheet1").ToList();
+
+        // Assert
+        Assert.Equal(2, readData.Count);
+        Assert.Equal("X", (string)readData[1].First);
+    }
+
+    #endregion
 }
 
 // Helper class for typed parsing test
