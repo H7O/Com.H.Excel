@@ -1,19 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFrameworks>netstandard2.0;netstandard2.1;net6.0;net7.0;net8.0;net9.0;net10.0</TargetFrameworks>
     <RootNamespace>Com.H.Excel</RootNamespace>
     <AssemblyName>Com.H.Excel</AssemblyName>
     <FileVersion></FileVersion>
-    <AssemblyVersion>2.0.0.5</AssemblyVersion>
+    <AssemblyVersion>2.1.0.0</AssemblyVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
     <Copyright>Hussein Al Bayati</Copyright>
     <Authors>Hussein Al Bayati</Authors>
-    <ApplicationIcon>128x128.ico</ApplicationIcon>
     <PackageIcon>128x128.jpg</PackageIcon>
     <PackageReadmeFile>nuget.md</PackageReadmeFile>
-    <Version>2.0.0.5</Version>
+    <Version>2.1.0.0</Version>
     <PackageReleaseNotes>Maintenance release</PackageReleaseNotes>
     <PackageTags>excel, xlsx, openxml, dynamic, ExpandoObject</PackageTags>
     <Description>Easy reading / writing / streaming Excel (xlsx) files.</Description>
@@ -24,10 +23,6 @@
 
 
   </PropertyGroup>
-
-  <ItemGroup>
-    <Content Include="128x128.ico" />
-  </ItemGroup>
 
   <ItemGroup>
     <None Include="..\128x128.jpg">
@@ -41,7 +36,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="DocumentFormat.OpenXml" Version="2.18.0" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="[3.4.1,4.0.0)" />
   </ItemGroup>
 
 </Project>

@@ -565,7 +565,7 @@ namespace Com.H.Excel
 
                 #endregion
                 #region finalizing
-                spreadsheetDocument.Close();
+                spreadsheetDocument.Dispose();
 
                 spreadsheetDocument = null;
                 try
@@ -680,7 +680,7 @@ namespace Com.H.Excel
 
             }
             #region finalazing
-            doc.Close();
+            doc.Dispose();
 
             #endregion
             return result;
@@ -840,7 +840,7 @@ namespace Com.H.Excel
                 yield return d;
             }
             #region finalazing
-            doc.Close();
+            doc.Dispose();
 
             #endregion
 
@@ -914,7 +914,7 @@ namespace Com.H.Excel
                 result.Add(obj);
             }
             #region finalazing
-            doc.Close();
+            doc.Dispose();
 
             #endregion
 
@@ -954,15 +954,19 @@ namespace Com.H.Excel
             if (cell == null) return null;
             if (cell.DataType != null)
             {
-                switch (cell.DataType?.Value)
+                var cellType = cell.DataType?.Value;
+                if (cellType == CellValues.SharedString)
                 {
-                    case CellValues.SharedString:
-                        SharedStringItem ssi = workbookPart.SharedStringTablePart.SharedStringTable.Elements<SharedStringItem>().ElementAt(int.Parse(cell.CellValue.InnerText));
-                        return ssi.Text.Text;
-                    case CellValues.Boolean:
-                        return cell.CellValue?.InnerText == "0";
-                    default:
-                        return cell.CellValue?.InnerText ?? cell.CellValue.Text;
+                    SharedStringItem ssi = workbookPart.SharedStringTablePart.SharedStringTable.Elements<SharedStringItem>().ElementAt(int.Parse(cell.CellValue.InnerText));
+                    return ssi.Text.Text;
+                }
+                else if (cellType == CellValues.Boolean)
+                {
+                    return cell.CellValue?.InnerText == "0";
+                }
+                else
+                {
+                    return cell.CellValue?.InnerText ?? cell.CellValue.Text;
                 }
             }
 
