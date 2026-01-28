@@ -890,8 +890,7 @@ namespace Com.H.Excel
                                 .Aggregate(lastIndex, (i, n) =>
                                 {
                                     var pInfoInternal = headers[i]?.PInfo;
-                                    if (pInfoInternal != null)
-                                        pInfoInternal.SetValue(obj, pInfoInternal.PropertyType.GetDefault());
+                                    pInfoInternal?.SetValue(obj, pInfoInternal.PropertyType.GetDefault());
                                     return n + 1;
                                 });
 

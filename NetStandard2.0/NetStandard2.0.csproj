@@ -5,7 +5,7 @@
     <RootNamespace>Com.H.Excel</RootNamespace>
     <AssemblyName>Com.H.Excel</AssemblyName>
     <FileVersion></FileVersion>
-    <AssemblyVersion>2.0.0.4</AssemblyVersion>
+    <AssemblyVersion>2.0.0.5</AssemblyVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
     <Copyright>Hussein Al Bayati</Copyright>
@@ -13,7 +13,7 @@
     <ApplicationIcon>128x128.ico</ApplicationIcon>
     <PackageIcon>128x128.jpg</PackageIcon>
     <PackageReadmeFile>nuget.md</PackageReadmeFile>
-    <Version>2.0.0.4</Version>
+    <Version>2.0.0.5</Version>
     <PackageReleaseNotes>Maintenance release</PackageReleaseNotes>
     <PackageTags>excel, xlsx, openxml, dynamic, ExpandoObject</PackageTags>
     <Description>Easy reading / writing / streaming Excel (xlsx) files.</Description>
