@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NetStandard2.0\NetStandard2.0.csproj" />
+    <ProjectReference Include="..\src\Com.H.Excel.csproj" />
   </ItemGroup>
 
 </Project>

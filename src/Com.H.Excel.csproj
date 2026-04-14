@@ -5,14 +5,14 @@
     <RootNamespace>Com.H.Excel</RootNamespace>
     <AssemblyName>Com.H.Excel</AssemblyName>
     <FileVersion></FileVersion>
-    <AssemblyVersion>2.1.0.0</AssemblyVersion>
+    <AssemblyVersion>10.0.0.0</AssemblyVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
     <Copyright>Hussein Al Bayati</Copyright>
     <Authors>Hussein Al Bayati</Authors>
     <PackageIcon>128x128.jpg</PackageIcon>
     <PackageReadmeFile>nuget.md</PackageReadmeFile>
-    <Version>2.1.0.0</Version>
+    <Version>10.0.0</Version>
     <PackageReleaseNotes>Maintenance release</PackageReleaseNotes>
     <PackageTags>excel, xlsx, openxml, dynamic, ExpandoObject</PackageTags>
     <Description>Easy reading / writing / streaming Excel (xlsx) files.</Description>
@@ -20,7 +20,10 @@
     <RepositoryUrl>https://github.com/H7O/Com.H.Excel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 
-
+    <!-- Embedded debug symbols for downstream debugging -->
+    <DebugType>embedded</DebugType>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
 
   </PropertyGroup>
 
@@ -37,6 +40,7 @@
 
   <ItemGroup>
     <PackageReference Include="DocumentFormat.OpenXml" Version="[3.4.1,4.0.0)" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.*" PrivateAssets="All" />
   </ItemGroup>
 
 </Project>
