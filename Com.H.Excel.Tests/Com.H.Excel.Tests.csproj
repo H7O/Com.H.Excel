@@ -20,4 +20,10 @@
     <ProjectReference Include="..\src\Com.H.Excel.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="TestFixtures\*.xlsx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

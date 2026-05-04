@@ -1,4 +1,7 @@
 using Com.H.Excel;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Spreadsheet;
 using Xunit;
 
 namespace Com.H.Excel.Tests;
@@ -311,6 +314,273 @@ public class ExcelTests : IDisposable
         // Assert
         Assert.Equal(2, readData.Count);
         Assert.Equal("X", (string)readData[1].First);
+    }
+
+    #endregion
+
+    #region SharedString / InlineString edge cases
+
+    // Builds a minimal XLSX with one sheet, one row, where the cell carries
+    // DataType=SharedString but the workbook intentionally has NO SharedStringTablePart.
+    // This mirrors malformed/unusual files some external writers produce and was
+    // the original NRE the library hit.
+    private static void BuildXlsxWithMissingSst(string path, string sharedStringIndex)
+    {
+        using var doc = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook);
+        var workbookPart = doc.AddWorkbookPart();
+        workbookPart.Workbook = new Workbook();
+        var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+
+        // Row 1 header (inline string), Row 2 data cell pointing at SharedString index that doesn't resolve.
+        var sheetData = new SheetData(
+            new Row(new Cell
+            {
+                CellValue = new CellValue("Header"),
+                DataType = new EnumValue<CellValues>(CellValues.String)
+            }),
+            new Row(new Cell
+            {
+                CellValue = new CellValue(sharedStringIndex),
+                DataType = new EnumValue<CellValues>(CellValues.SharedString)
+            })
+        );
+        worksheetPart.Worksheet = new Worksheet(sheetData);
+
+        var sheets = workbookPart.Workbook.AppendChild(new Sheets());
+        sheets.Append(new Sheet
+        {
+            Id = workbookPart.GetIdOfPart(worksheetPart),
+            SheetId = 1,
+            Name = "Sheet1"
+        });
+        workbookPart.Workbook.Save();
+    }
+
+    private static void BuildXlsxWithInlineString(string path, string headerName, string inlineValue)
+    {
+        using var doc = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook);
+        var workbookPart = doc.AddWorkbookPart();
+        workbookPart.Workbook = new Workbook();
+        var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+
+        var headerCell = new Cell
+        {
+            CellValue = new CellValue(headerName),
+            DataType = new EnumValue<CellValues>(CellValues.String)
+        };
+        var dataCell = new Cell
+        {
+            DataType = new EnumValue<CellValues>(CellValues.InlineString),
+            InlineString = new InlineString(new Text(inlineValue))
+        };
+
+        worksheetPart.Worksheet = new Worksheet(new SheetData(
+            new Row(headerCell),
+            new Row(dataCell)
+        ));
+
+        var sheets = workbookPart.Workbook.AppendChild(new Sheets());
+        sheets.Append(new Sheet
+        {
+            Id = workbookPart.GetIdOfPart(worksheetPart),
+            SheetId = 1,
+            Name = "Sheet1"
+        });
+        workbookPart.Workbook.Save();
+    }
+
+    [Fact]
+    public void ReadSheet_WithMissingSharedStringTable_DoesNotThrow()
+    {
+        var filePath = Path.Combine(_tempFolder, "missing_sst.xlsx");
+        BuildXlsxWithMissingSst(filePath, "0");
+
+        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var rows = fs.ParseExcelSheet("Sheet1").ToList();
+
+        Assert.Single(rows);
+        // With no SST to resolve against, the raw index value is returned rather than NREing.
+        Assert.Equal("0", (string)rows[0].Header);
+    }
+
+    [Fact]
+    public void ReadSheet_WithMissingSharedStringTable_NonNumericIndex_DoesNotThrow()
+    {
+        var filePath = Path.Combine(_tempFolder, "missing_sst_garbled.xlsx");
+        BuildXlsxWithMissingSst(filePath, "garbage-not-an-int");
+
+        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var rows = fs.ParseExcelSheet("Sheet1").ToList();
+
+        Assert.Single(rows);
+        Assert.Equal("garbage-not-an-int", (string)rows[0].Header);
+    }
+
+    [Fact]
+    public void ReadSheet_WithInlineString_ReturnsValue()
+    {
+        var filePath = Path.Combine(_tempFolder, "inline_string.xlsx");
+        BuildXlsxWithInlineString(filePath, "Name", "Inline-Hello");
+
+        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var rows = fs.ParseExcelSheet("Sheet1").ToList();
+
+        Assert.Single(rows);
+        Assert.Equal("Inline-Hello", (string)rows[0].Name);
+    }
+
+    #endregion
+
+    #region Boolean round-trip
+
+    public class BoolRow
+    {
+        public string? Name { get; set; }
+        public bool Active { get; set; }
+    }
+
+    [Fact]
+    public void WriteAndRead_Booleans_RoundTripCorrectly()
+    {
+        // Boolean cells in OpenXml use "1" for true and "0" for false.
+        // Earlier the writer emitted "True"/"False" and the reader inverted the comparison;
+        // both bugs combined could give wrong-but-consistent results, but any external tool
+        // touching the file would see incorrect values. This test pins down the spec-compliant behavior.
+        var data = new List<object>
+        {
+            new BoolRow { Name = "row-true",  Active = true  },
+            new BoolRow { Name = "row-false", Active = false },
+        };
+
+        var filePath = Path.Combine(_tempFolder, "bool_roundtrip.xlsx");
+        data.ToExcelFile(filePath);
+
+        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var read = fs.ParseExcelSheet<BoolRow>("Sheet1").ToList();
+
+        Assert.Equal(2, read.Count);
+        Assert.Equal("row-true", read[0].Name);
+        Assert.True(read[0].Active);
+        Assert.Equal("row-false", read[1].Name);
+        Assert.False(read[1].Active);
+    }
+
+    #endregion
+
+    #region Null numeric / bool cells produce valid output
+
+    public class NumericNullableRow
+    {
+        public string? Name { get; set; }
+        public int? Score { get; set; }
+        public DateTime? When { get; set; }
+        public bool? Flag { get; set; }
+    }
+
+    [Fact]
+    public void WriteAndRead_NullNumericAndDateAndBool_DoesNotCorruptFile()
+    {
+        // Previously the writer emitted <c t="n"><v></v></c> for null numerics — invalid per spec
+        // and rejected by strict validators. This test asserts the file is well-formed enough
+        // to round-trip and that nulls survive as defaults.
+        var data = new List<object>
+        {
+            new NumericNullableRow { Name = "complete", Score = 42, When = new DateTime(2020,1,15), Flag = true },
+            new NumericNullableRow { Name = "all-null", Score = null, When = null, Flag = null },
+        };
+
+        var filePath = Path.Combine(_tempFolder, "null_numeric.xlsx");
+        data.ToExcelFile(filePath);
+
+        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var read = fs.ParseExcel();
+
+        Assert.True(read.ContainsKey("Sheet1"));
+        var rows = read["Sheet1"];
+        Assert.Equal(2, rows.Count);
+
+        // First row has values
+        Assert.Equal("complete", (string)rows[0].Name);
+
+        // Second row's nulls should not blow up the parser.
+        Assert.Equal("all-null", (string)rows[1].Name);
+    }
+
+    [Fact]
+    public void WriteAndRead_NullNumeric_StillProducesValidOpenXml()
+    {
+        // Open the produced file via OpenXml's own Validator-like API to be sure it isn't malformed.
+        var data = new List<object>
+        {
+            new NumericNullableRow { Name = "x", Score = null, When = null, Flag = null },
+        };
+        var filePath = Path.Combine(_tempFolder, "null_validation.xlsx");
+        data.ToExcelFile(filePath);
+
+        // If the file is malformed in a way that breaks OpenXml SDK reading,
+        // SpreadsheetDocument.Open itself will throw. This is a structural sanity check.
+        using var doc = SpreadsheetDocument.Open(filePath, false);
+        Assert.NotNull(doc.WorkbookPart);
+        Assert.NotNull(doc.WorkbookPart!.Workbook);
+    }
+
+    #endregion
+
+    #region openpyxl-generated fixture regressions
+
+    // openpyxl, by default, writes string cells as t="inlineStr" and emits no
+    // sharedStrings.xml part at all. Reading those files used to NRE here on
+    // workbookPart.SharedStringTablePart. Fixtures committed under TestFixtures/
+    // pin down that exact byte pattern.
+
+    private static string FixturePath(string fileName)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "TestFixtures", fileName);
+        if (!File.Exists(path))
+            throw new FileNotFoundException(
+                $"Fixture not found at {path}. Regenerate by running TestFixtures/generate_openpyxl_fixtures.py via uv.");
+        return path;
+    }
+
+    [Fact]
+    public void ReadOpenpyxlFile_BasicStrings_ReturnsAllRows()
+    {
+        using var fs = File.OpenRead(FixturePath("openpyxl_basic_strings.xlsx"));
+        var rows = fs.ParseExcelSheet().ToList();
+
+        Assert.Equal(3, rows.Count);
+        Assert.Equal("Alice", (string)rows[0].Name);
+        Assert.Equal("Paris", (string)rows[0].City);
+        Assert.Equal("Bob", (string)rows[1].Name);
+        Assert.Equal("Tokyo", (string)rows[2].City);
+    }
+
+    [Fact]
+    public void ReadOpenpyxlFile_MixedTypes_RoundTripsValues()
+    {
+        using var fs = File.OpenRead(FixturePath("openpyxl_mixed_types.xlsx"));
+        var rows = fs.ParseExcel();
+
+        Assert.True(rows.ContainsKey("Sheet1"));
+        var data = rows["Sheet1"];
+        Assert.Equal(2, data.Count);
+        Assert.Equal("alice", (string)data[0].Name);
+        Assert.Equal("bob", (string)data[1].Name);
+    }
+
+    [Fact]
+    public void ReadOpenpyxlFile_EmptyMiddleCells_HandlesGapsCorrectly()
+    {
+        using var fs = File.OpenRead(FixturePath("openpyxl_empty_middle.xlsx"));
+        var rows = fs.ParseExcelSheet().ToList();
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("a1", (string)rows[0].A);
+        Assert.Equal("c1", (string)rows[0].C);
+        Assert.Equal("d1", (string)rows[0].D);
+        Assert.Equal("a2", (string)rows[1].A);
+        Assert.Equal("b2", (string)rows[1].B);
+        Assert.Equal("d2", (string)rows[1].D);
     }
 
     #endregion

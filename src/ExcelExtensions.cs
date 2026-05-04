@@ -527,12 +527,10 @@ namespace Com.H.Excel
                         {
                             object valueRaw = pInfo.Info.GetValue(item);
 
+                            // Empty cell with no DataType / no <v> is valid OpenXml regardless of column type.
+                            // Avoids emitting an empty <v/> under a Number/Boolean DataType, which strict readers reject.
                             if (valueRaw == null)
-                                return new Cell()
-                                {
-                                    CellValue = new CellValue(""),
-                                    DataType = new EnumValue<CellValues>(pInfo.Info.PropertyType.GetOpenXmlType())
-                                };
+                                return new Cell();
 
                             if (pInfo.Info.PropertyType == typeof(DateTime)
                                 ||
@@ -544,11 +542,23 @@ namespace Com.H.Excel
                                     DataType = new EnumValue<CellValues>(CellValues.Number),
                                     StyleIndex = 1
                                 };
+
+                            if (valueRaw is bool b)
+                                return new Cell()
+                                {
+                                    CellValue = new CellValue(b ? "1" : "0"),
+                                    DataType = new EnumValue<CellValues>(CellValues.Boolean),
+                                    StyleIndex = 0
+                                };
+
+                            CellValues cellType = pInfo.Info.PropertyType.GetOpenXmlType();
+                            string cellText = cellType == CellValues.Number
+                                ? Convert.ToString(valueRaw, CultureInfo.InvariantCulture)
+                                : valueRaw.ToString();
                             return new Cell()
                             {
-                                CellValue = new CellValue(valueRaw.ToString()),
-                                DataType = new EnumValue<CellValues>(
-                                    pInfo.Info.PropertyType.GetOpenXmlType()),
+                                CellValue = new CellValue(cellText),
+                                DataType = new EnumValue<CellValues>(cellType),
                                 StyleIndex = 0
                             };
 
@@ -605,85 +615,88 @@ namespace Com.H.Excel
         public static Dictionary<string, List<dynamic>> ParseExcel(
             this System.IO.Stream inStream, bool noHeaders = false)
         {
-            SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false);
-            var excelSheets = doc?.WorkbookPart?.Workbook?
-                    .Descendants<Sheet>();
-            WorkbookPart workbookPart = doc.WorkbookPart;
-            Dictionary<string, SheetData> sheets = excelSheets.ToDictionary(
-                key => key.Name?.ToString(), value =>
-                ((WorksheetPart)workbookPart.GetPartById(value.Id))
-                    .Worksheet.GetFirstChild<SheetData>());
-
-            Dictionary<string, List<dynamic>> result = new Dictionary<string, List<dynamic>>();
-
-            foreach (var sheet in sheets)
+            using (SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false))
             {
-                result.Add(sheet.Key, new List<dynamic>());
+                var excelSheets = doc?.WorkbookPart?.Workbook?
+                        .Descendants<Sheet>();
+                WorkbookPart workbookPart = doc.WorkbookPart;
+                Dictionary<string, SheetData> sheets = excelSheets.ToDictionary(
+                    key => key.Name?.ToString(), value =>
+                    ((WorksheetPart)workbookPart.GetPartById(value.Id))
+                        .Worksheet.GetFirstChild<SheetData>());
 
-                Dictionary<string, Type> headers = noHeaders ?
-                         Enumerable.Range(0, sheet.Value.Count() - 1)
-                        .Select(x => $"column_{x}")
-                        .ToDictionary(key => key, value => typeof(string))
-                        : sheet.Value?.FirstOrDefault()?.Select(x =>
-                         ((Cell)x).GetText(workbookPart))
-                        .ToDictionary(key => key, value => typeof(string));
+                Dictionary<string, List<dynamic>> result = new Dictionary<string, List<dynamic>>();
 
-                List<string> headerNames = headers.Keys?.ToList();
-
-
-                foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1).Cast<Row>())
+                foreach (var sheet in sheets)
                 {
-                    ExpandoObject d = new ExpandoObject();
-                    int headerIndex = -1;
-                    foreach (Cell cell in row.Select(x => (Cell)x))
+                    result.Add(sheet.Key, new List<dynamic>());
+                    if (sheet.Value == null) continue;
+
+                    Dictionary<string, Type> headers = noHeaders ?
+                             Enumerable.Range(0, sheet.Value.Count() - 1)
+                            .Select(x => $"column_{x}")
+                            .ToDictionary(key => key, value => typeof(string))
+                            : sheet.Value.FirstOrDefault()?.Select(x =>
+                             ((Cell)x).GetText(workbookPart))
+                            .Where(x => !string.IsNullOrEmpty(x))
+                            .ToDictionary(key => key, value => typeof(string));
+
+                    if (headers == null || headers.Count < 1) continue;
+                    List<string> headerNames = headers.Keys.ToList();
+
+
+                    foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1).Cast<Row>())
                     {
-                        headerIndex++;
-                        var headerName = headerNames[headerIndex];
-                        Type type =
-                            (headers[headerName] = cell.GetDataTypeOtherThanString(workbookPart)
-                            ?? headers[headerName] ?? typeof(string));
-
-                        if (cell == null)
+                        ExpandoObject d = new ExpandoObject();
+                        int headerIndex = -1;
+                        foreach (Cell cell in row.Select(x => (Cell)x))
                         {
-                            ((IDictionary<String, Object>)d)[headerName] = type.GetDefault();
-                            continue;
+                            headerIndex++;
+                            if (headerIndex >= headerNames.Count) break;
+                            var headerName = headerNames[headerIndex];
+                            Type type =
+                                (headers[headerName] = cell.GetDataTypeOtherThanString(workbookPart)
+                                ?? headers[headerName] ?? typeof(string));
+
+                            if (cell == null)
+                            {
+                                ((IDictionary<string, object>)d)[headerName] = type.GetDefault();
+                                continue;
+                            }
+
+                            int? index = (cell.GetCellColIndex() - 1) ?? headerIndex;
+
+                            // fill collapsed columns
+                            if (index > headerIndex)
+                            {
+                                int gapEnd = Math.Min((int)index, headerNames.Count);
+                                headerIndex = Enumerable.Range(headerIndex, gapEnd - headerIndex)
+                                    .Aggregate(headerIndex, (i, n) =>
+                                    {
+                                        ((IDictionary<string, object>)d)[headerNames[i]] =
+                                            (headers[headerNames[i]] = cell.GetDataTypeOtherThanString(workbookPart)
+                                            ?? headers[headerNames[i]] ?? typeof(string)).GetDefault();
+                                        return n + 1;
+                                    });
+                                if (headerIndex >= headerNames.Count) break;
+                                headerName = headerNames[headerIndex];
+                            }
+
+                            object value = null;
+
+                            try
+                            {
+                                value = cell.GetObject(workbookPart);
+                            }
+                            catch { }
+                            ((IDictionary<string, object>)d)[headerName] = value ?? type.GetDefault();
+
                         }
-
-                        int? index = (cell.GetCellColIndex() - 1) ?? headerIndex;
-                        // if (index == null) break;
-
-                        // fill collapsed columns
-                        if (index > headerIndex)
-                            headerName = headerNames[headerIndex =
-                                Enumerable.Range(headerIndex, (int)index - headerIndex)
-                                .Aggregate(headerIndex, (i, n) =>
-                                {
-                                    ((IDictionary<String, Object>)d)[headerName] =
-                                        (headers[headerNames[i]] = cell.GetDataTypeOtherThanString(workbookPart)
-                                        ?? headers[headerNames[i]] ?? typeof(string)).GetDefault();
-                                    return n + 1;
-                                })];
-
-                        object value = null;
-
-                        try
-                        {
-                            value = cell.GetObject(workbookPart); // Convert.ChangeType(cell.GetText(doc), type, CultureInfo.InvariantCulture);
-                        }
-                        catch { }
-                        ((IDictionary<String, Object>)d)[headerName] = value ?? type.GetDefault();
-
+                        result[sheet.Key].Add(d);
                     }
-                    result[sheet.Key].Add(d);
                 }
-
-
+                return result;
             }
-            #region finalazing
-            doc.Dispose();
-
-            #endregion
-            return result;
         }
 
 
@@ -696,79 +709,86 @@ namespace Com.H.Excel
             string sheetName = null, bool noHeaders = false
             )
         {
-            SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false);
-            var excelSheets = doc?.WorkbookPart?.Workbook?
-                    .Descendants<Sheet>();
-            WorkbookPart workbookPart = doc.WorkbookPart;
-            Dictionary<string, SheetData> sheets = excelSheets.ToDictionary(
-                key => key.Name?.ToString(), value =>
-                ((WorksheetPart)workbookPart.GetPartById(value.Id))
-                    .Worksheet.GetFirstChild<SheetData>());
-            var sheet = sheetName is null?
-                sheets.FirstOrDefault()
-                :
-                sheets.FirstOrDefault(x => x.Key.EqualsIgnoreCase(sheetName));
-
-
-            Dictionary<string, Type> headers = noHeaders ?
-                     Enumerable.Range(0, sheet.Value.Count() - 1)
-                    .Select(x => $"column_{x}")
-                    .ToDictionary(key => key, value => typeof(string))
-                    : sheet.Value?.FirstOrDefault()?.Select(x =>
-                     ((Cell)x).GetText(workbookPart))
-                    .ToDictionary(key => key, value => typeof(string));
-
-            List<string> headerNames = headers.Keys?.ToList();
-
-
-            foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1).Cast<Row>())
+            using (SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false))
             {
-                ExpandoObject d = new ExpandoObject();
-                int headerIndex = -1;
-                foreach (Cell cell in row.Select(x => (Cell)x))
+                var excelSheets = doc?.WorkbookPart?.Workbook?
+                        .Descendants<Sheet>();
+                WorkbookPart workbookPart = doc.WorkbookPart;
+                Dictionary<string, SheetData> sheets = excelSheets.ToDictionary(
+                    key => key.Name?.ToString(), value =>
+                    ((WorksheetPart)workbookPart.GetPartById(value.Id))
+                        .Worksheet.GetFirstChild<SheetData>());
+                var sheet = sheetName is null ?
+                    sheets.FirstOrDefault()
+                    :
+                    sheets.FirstOrDefault(x => x.Key.EqualsIgnoreCase(sheetName));
+
+                if (sheet.Value == null) yield break;
+
+                Dictionary<string, Type> headers = noHeaders ?
+                         Enumerable.Range(0, sheet.Value.Count() - 1)
+                        .Select(x => $"column_{x}")
+                        .ToDictionary(key => key, value => typeof(string))
+                        : sheet.Value.FirstOrDefault()?.Select(x =>
+                         ((Cell)x).GetText(workbookPart))
+                        .Where(x => !string.IsNullOrEmpty(x))
+                        .ToDictionary(key => key, value => typeof(string));
+
+                if (headers == null || headers.Count < 1) yield break;
+                List<string> headerNames = headers.Keys.ToList();
+
+
+                foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1).Cast<Row>())
                 {
-                    headerIndex++;
-                    var headerName = headerNames[headerIndex];
-                    Type type =
-                        (headers[headerName] = cell.GetDataTypeOtherThanString(workbookPart)
-                        ?? headers[headerName] ?? typeof(string));
-
-                    if (cell == null)
+                    ExpandoObject d = new ExpandoObject();
+                    int headerIndex = -1;
+                    foreach (Cell cell in row.Select(x => (Cell)x))
                     {
-                        ((IDictionary<String, Object>)d)[headerName] = type.GetDefault();
-                        continue;
+                        headerIndex++;
+                        if (headerIndex >= headerNames.Count) break;
+                        var headerName = headerNames[headerIndex];
+                        Type type =
+                            (headers[headerName] = cell.GetDataTypeOtherThanString(workbookPart)
+                            ?? headers[headerName] ?? typeof(string));
+
+                        if (cell == null)
+                        {
+                            ((IDictionary<string, object>)d)[headerName] = type.GetDefault();
+                            continue;
+                        }
+
+                        int? index = (cell.GetCellColIndex() - 1) ?? headerIndex;
+
+                        // fill collapsed columns
+                        if (index > headerIndex)
+                        {
+                            int gapEnd = Math.Min((int)index, headerNames.Count);
+                            headerIndex = Enumerable.Range(headerIndex, gapEnd - headerIndex)
+                                .Aggregate(headerIndex, (i, n) =>
+                                {
+                                    ((IDictionary<string, object>)d)[headerNames[i]] =
+                                        (headers[headerNames[i]] = cell.GetDataTypeOtherThanString(workbookPart)
+                                        ?? headers[headerNames[i]] ?? typeof(string)).GetDefault();
+                                    return n + 1;
+                                });
+                            if (headerIndex >= headerNames.Count) break;
+                            headerName = headerNames[headerIndex];
+                        }
+
+                        object value = null;
+
+                        try
+                        {
+                            value = cell.GetObject(workbookPart);
+                        }
+                        catch { }
+                        ((IDictionary<string, object>)d)[headerName] = value ?? type.GetDefault();
+
                     }
-
-                    int? index = (cell.GetCellColIndex() - 1) ?? headerIndex;
-                    // if (index == null) break;
-
-                    // fill collapsed columns
-                    if (index > headerIndex)
-                        headerName = headerNames[headerIndex =
-                            Enumerable.Range(headerIndex, (int)index - headerIndex)
-                            .Aggregate(headerIndex, (i, n) =>
-                            {
-                                ((IDictionary<String, Object>)d)[headerName] =
-                                    (headers[headerNames[i]] = cell.GetDataTypeOtherThanString(workbookPart)
-                                    ?? headers[headerNames[i]] ?? typeof(string)).GetDefault();
-                                return n + 1;
-                            })];
-
-                    object value = null;
-
-                    try
-                    {
-                        value = cell.GetObject(workbookPart); // Convert.ChangeType(cell.GetText(doc), type, CultureInfo.InvariantCulture);
-                    }
-                    catch { }
-                    ((IDictionary<String, Object>)d)[headerName] = value ?? type.GetDefault();
+                    yield return d;
 
                 }
-                yield return d;
-
             }
-
-            yield break;
         }
 
         public static IEnumerable<T> ParseExcelSheet<T>(
@@ -776,150 +796,142 @@ namespace Com.H.Excel
             string sheetName = null,
             bool noHeaders = false)
         {
-            SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false);
-            var excelSheets = doc?.WorkbookPart?.Workbook?
-                    .Descendants<Sheet>();
-            WorkbookPart workbookPart = doc.WorkbookPart;
-            Dictionary<string, SheetData> sheets = excelSheets.ToDictionary(
-                key => key.Name?.ToString(), value =>
-                ((WorksheetPart)workbookPart.GetPartById(value.Id))
-                    .Worksheet.GetFirstChild<SheetData>());
-            var sheet = sheetName is null?
-                sheets.FirstOrDefault():
-                sheets.FirstOrDefault(x => x.Key.EqualsIgnoreCase(sheetName));
-
-            if (sheet.Equals(default(KeyValuePair<string, SheetData>)))
-                sheet = sheets.FirstOrDefault();
-
-            if (sheet.Equals(default(KeyValuePair<string, SheetData>)))
-                yield break;
-            int hIndex = 0;
-            Dictionary<int, PropertyInfo> headers = noHeaders ?
-                    typeof(T).GetCachedProperties()?
-                    .ToDictionary(k => hIndex++, v => v.Info)
-                     : sheet.Value.FirstOrDefault()?
-                    .Select(x => ((Cell)x).GetText(workbookPart))
-                    .LeftJoin(typeof(T).GetCachedProperties(),
-                        e => e?.ToUpperInvariant(),
-                        p => p.Name?.ToUpperInvariant(),
-                        (e, p) => new { Index = hIndex++, p.Info }
-                    ).ToDictionary(k => k.Index, v => v.Info);
-
-            if (headers is null || headers.Count < 1) yield break;
-
-
-            var hCount = headers.Count;
-
-            foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1).Cast<Row>())
+            using (SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false))
             {
-                T d = Activator.CreateInstance<T>();
+                var excelSheets = doc?.WorkbookPart?.Workbook?
+                        .Descendants<Sheet>();
+                WorkbookPart workbookPart = doc.WorkbookPart;
+                Dictionary<string, SheetData> sheets = excelSheets.ToDictionary(
+                    key => key.Name?.ToString(), value =>
+                    ((WorksheetPart)workbookPart.GetPartById(value.Id))
+                        .Worksheet.GetFirstChild<SheetData>());
+                var sheet = sheetName is null ?
+                    sheets.FirstOrDefault() :
+                    sheets.FirstOrDefault(x => x.Key.EqualsIgnoreCase(sheetName));
 
-                int index = -1;
-                foreach (Cell cell in row.Select(x => (Cell)x))
+                if (sheet.Equals(default(KeyValuePair<string, SheetData>)))
+                    sheet = sheets.FirstOrDefault();
+
+                if (sheet.Equals(default(KeyValuePair<string, SheetData>)) || sheet.Value == null)
+                    yield break;
+                int hIndex = 0;
+                Dictionary<int, PropertyInfo> headers = noHeaders ?
+                        typeof(T).GetCachedProperties()?
+                        .ToDictionary(k => hIndex++, v => v.Info)
+                         : sheet.Value.FirstOrDefault()?
+                        .Select(x => ((Cell)x).GetText(workbookPart))
+                        .LeftJoin(typeof(T).GetCachedProperties(),
+                            e => e?.ToUpperInvariant(),
+                            p => p.Name?.ToUpperInvariant(),
+                            (e, p) => new { Index = hIndex++, p.Info }
+                        ).ToDictionary(k => k.Index, v => v.Info);
+
+                if (headers is null || headers.Count < 1) yield break;
+
+
+                var hCount = headers.Count;
+
+                foreach (Row row in sheet.Value.Skip(noHeaders ? 0 : 1).Cast<Row>())
                 {
-                    if ((index = (cell.GetCellColIndex() - 1) ?? ++index)
-                        > hCount
-                        && noHeaders) break;
+                    T d = Activator.CreateInstance<T>();
 
-                    var pInfo = headers[index];
-                    if (pInfo is null) continue;
-
-                    try
+                    int index = -1;
+                    foreach (Cell cell in row.Select(x => (Cell)x))
                     {
-                        var value = cell.GetObject(workbookPart);
-                        if (value == null)
+                        if ((index = (cell.GetCellColIndex() - 1) ?? ++index)
+                            >= hCount) break;
+
+                        var pInfo = headers[index];
+                        if (pInfo is null) continue;
+
+                        try
                         {
-                            pInfo.SetValue(d, pInfo.PropertyType.GetDefault());
-                            continue;
+                            var value = cell.GetObject(workbookPart);
+                            if (value == null)
+                            {
+                                pInfo.SetValue(d, pInfo.PropertyType.GetDefault());
+                                continue;
+                            }
+                            pInfo.SetValue(d, value.ConvertTo(pInfo.PropertyType));
                         }
-                        pInfo.SetValue(d, value.ConvertTo(pInfo.PropertyType));
+                        catch { }
+
                     }
-                    catch { }
-
+                    yield return d;
                 }
-                yield return d;
             }
-            #region finalazing
-            doc.Dispose();
-
-            #endregion
-
-            yield break;
-
         }
 
 
         public static List<T> ParseExcelDepricated<T>(
             this System.IO.Stream inStream, string sheetName = null)
         {
-            SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false);
-            var excelSheets = doc?.WorkbookPart?.Workbook?
-                    .Descendants<Sheet>();
-            WorkbookPart workbookPart = doc.WorkbookPart;
-            var sheetId = doc?.WorkbookPart?.Workbook?
-                    .Descendants<Sheet>().FirstOrDefault(x =>
-                string.IsNullOrWhiteSpace(sheetName)
-                || sheetName.EqualsIgnoreCase(x.Name))?.Id;
-
-            if (sheetId == null) return Enumerable.Empty<T>().ToList();
-            var sheet = ((WorksheetPart)workbookPart.GetPartById(sheetId))?.Worksheet?.GetFirstChild<SheetData>();
-            if (sheet == null) return Enumerable.Empty<T>().ToList();
-
-            var headers = sheet.FirstOrDefault()?
-            .Select(x => ((Cell)x).GetText(workbookPart))
-            .LeftJoin(typeof(T).GetCachedProperties(),
-                e => e?.ToUpperInvariant(),
-                t => t.Name?.ToUpperInvariant(),
-                (e, p) => new { Excel = e, PInfo = p.Info }
-            ).ToList();
-
-            if (headers == null || headers.Count < 1) return Enumerable.Empty<T>().ToList();
-
-            List<T> result = new List<T>();
-            foreach (Row row in sheet.Skip(1).Cast<Row>())
+            using (SpreadsheetDocument doc = SpreadsheetDocument.Open(inStream, false))
             {
-                T obj = Activator.CreateInstance<T>();
-                int lastIndex = 0;
-                foreach (Cell cell in row.Select(x => (Cell)x))
+                WorkbookPart workbookPart = doc.WorkbookPart;
+                var sheetId = doc?.WorkbookPart?.Workbook?
+                        .Descendants<Sheet>().FirstOrDefault(x =>
+                    string.IsNullOrWhiteSpace(sheetName)
+                    || sheetName.EqualsIgnoreCase(x.Name))?.Id;
+
+                if (sheetId == null) return Enumerable.Empty<T>().ToList();
+                var sheet = ((WorksheetPart)workbookPart.GetPartById(sheetId))?.Worksheet?.GetFirstChild<SheetData>();
+                if (sheet == null) return Enumerable.Empty<T>().ToList();
+
+                var headers = sheet.FirstOrDefault()?
+                .Select(x => ((Cell)x).GetText(workbookPart))
+                .LeftJoin(typeof(T).GetCachedProperties(),
+                    e => e?.ToUpperInvariant(),
+                    t => t.Name?.ToUpperInvariant(),
+                    (e, p) => new { Excel = e, PInfo = p.Info }
+                ).ToList();
+
+                if (headers == null || headers.Count < 1) return Enumerable.Empty<T>().ToList();
+
+                List<T> result = new List<T>();
+                foreach (Row row in sheet.Skip(1).Cast<Row>())
                 {
-                    int? index = cell?.GetCellColIndex() ?? lastIndex - 1;
-
-                    // fill collapsed columns
-                    if (index > lastIndex)
-                        lastIndex = Enumerable.Range(lastIndex, (int)index - lastIndex)
-                                .Aggregate(lastIndex, (i, n) =>
-                                {
-                                    var pInfoInternal = headers[i]?.PInfo;
-                                    pInfoInternal?.SetValue(obj, pInfoInternal.PropertyType.GetDefault());
-                                    return n + 1;
-                                });
-
-
-                    var pInfo = headers[lastIndex++].PInfo;
-                    if (pInfo == null) continue;
-                    try
+                    T obj = Activator.CreateInstance<T>();
+                    int lastIndex = 0;
+                    foreach (Cell cell in row.Select(x => (Cell)x))
                     {
-                        var value = cell.GetObject(workbookPart);
-                        if (value == null)
+                        int? index = cell?.GetCellColIndex() ?? lastIndex - 1;
+
+                        // fill collapsed columns
+                        if (index > lastIndex)
                         {
-                            pInfo.SetValue(obj, pInfo.PropertyType.GetDefault());
-                            continue;
+                            int gapEnd = Math.Min((int)index, headers.Count);
+                            lastIndex = Enumerable.Range(lastIndex, gapEnd - lastIndex)
+                                    .Aggregate(lastIndex, (i, n) =>
+                                    {
+                                        var pInfoInternal = headers[i]?.PInfo;
+                                        pInfoInternal?.SetValue(obj, pInfoInternal.PropertyType.GetDefault());
+                                        return n + 1;
+                                    });
                         }
-                        pInfo.SetValue(obj, value.ConvertTo(pInfo.PropertyType));
+
+                        if (lastIndex >= headers.Count) break;
+                        var pInfo = headers[lastIndex++].PInfo;
+                        if (pInfo == null) continue;
+                        try
+                        {
+                            var value = cell.GetObject(workbookPart);
+                            if (value == null)
+                            {
+                                pInfo.SetValue(obj, pInfo.PropertyType.GetDefault());
+                                continue;
+                            }
+                            pInfo.SetValue(obj, value.ConvertTo(pInfo.PropertyType));
+
+                        }
+                        catch { }
 
                     }
-                    catch { }
-
+                    result.Add(obj);
                 }
-                result.Add(obj);
+
+                return result;
             }
-            #region finalazing
-            doc.Dispose();
-
-            #endregion
-
-
-            return result;
         }
 
 
@@ -932,21 +944,43 @@ namespace Com.H.Excel
 
             int? styleIndex = (int?)cell.StyleIndex?.Value;
             if (styleIndex == null) return null;
-            CellFormat cellFormat = (CellFormat)workbookPart.WorkbookStylesPart.Stylesheet.CellFormats.ElementAt((int)styleIndex);
-            uint formatId = cellFormat.NumberFormatId.Value;
 
-            if (DateTimeFormatIds.Contains(formatId)) return typeof(DateTime?);
-            if (IntFormatIds.Contains(formatId)) return typeof(int?);
-            if (DecimalFormatIds.Contains(formatId)) return typeof(decimal?);
+            var cellFormats = workbookPart?.WorkbookStylesPart?.Stylesheet?.CellFormats;
+            if (cellFormats == null || styleIndex >= cellFormats.ChildElements.Count) return null;
+
+            CellFormat cellFormat = (CellFormat)cellFormats.ElementAt((int)styleIndex);
+            uint? formatId = cellFormat?.NumberFormatId?.Value;
+            if (formatId == null) return null;
+
+            if (DateTimeFormatIds.Contains(formatId.Value)) return typeof(DateTime?);
+            if (IntFormatIds.Contains(formatId.Value)) return typeof(int?);
+            if (DecimalFormatIds.Contains(formatId.Value)) return typeof(decimal?);
             return null;
         }
+        private static string ResolveSharedString(WorkbookPart workbookPart, string indexText)
+        {
+            var sst = workbookPart?.SharedStringTablePart?.SharedStringTable;
+            if (sst == null) return indexText;
+            if (!int.TryParse(indexText, out int idx)) return indexText;
+            if (idx < 0 || idx >= sst.ChildElements.Count) return indexText;
+            return sst.ChildElements[idx].InnerText;
+        }
+
         private static string GetText(this Cell cell, WorkbookPart workbookPart)
         {
-            string value =
-            (cell.DataType != null && cell.DataType.Value == CellValues.SharedString) ?
-                workbookPart.SharedStringTablePart.SharedStringTable.ChildElements[int.Parse(cell.CellValue.Text)].InnerText :
-                cell.CellValue.Text;
-            return value;
+            if (cell == null) return null;
+
+            // InlineString: value is in <is><t>...</t></is>, not in <v>
+            if (cell.DataType?.Value == CellValues.InlineString)
+                return cell.InlineString?.Text?.Text ?? cell.InlineString?.InnerText ?? string.Empty;
+
+            string raw = cell.CellValue?.Text ?? cell.InnerText;
+            if (string.IsNullOrEmpty(raw)) return raw ?? string.Empty;
+
+            if (cell.DataType?.Value == CellValues.SharedString)
+                return ResolveSharedString(workbookPart, raw);
+
+            return raw;
         }
 
         private static object GetObject(this Cell cell, WorkbookPart workbookPart)
@@ -954,34 +988,46 @@ namespace Com.H.Excel
             if (cell == null) return null;
             if (cell.DataType != null)
             {
-                var cellType = cell.DataType?.Value;
+                var cellType = cell.DataType.Value;
                 if (cellType == CellValues.SharedString)
                 {
-                    SharedStringItem ssi = workbookPart.SharedStringTablePart.SharedStringTable.Elements<SharedStringItem>().ElementAt(int.Parse(cell.CellValue.InnerText));
-                    return ssi.Text.Text;
+                    string raw = cell.CellValue?.InnerText ?? cell.CellValue?.Text;
+                    if (string.IsNullOrEmpty(raw)) return null;
+                    return ResolveSharedString(workbookPart, raw);
+                }
+                else if (cellType == CellValues.InlineString)
+                {
+                    return cell.InlineString?.Text?.Text ?? cell.InlineString?.InnerText;
                 }
                 else if (cellType == CellValues.Boolean)
                 {
-                    return cell.CellValue?.InnerText == "0";
+                    // Excel encodes TRUE as "1" and FALSE as "0".
+                    return cell.CellValue?.InnerText == "1";
                 }
                 else
                 {
-                    return cell.CellValue?.InnerText ?? cell.CellValue.Text;
+                    return cell.CellValue?.InnerText ?? cell.CellValue?.Text;
                 }
             }
 
             int? styleIndex = (int?)cell.StyleIndex?.Value;
             if (styleIndex == null) return cell.CellValue?.Text;
 
-            CellFormat cellFormat = (CellFormat)workbookPart.WorkbookStylesPart.Stylesheet.CellFormats.ElementAt((int)styleIndex);
-            uint formatId = cellFormat.NumberFormatId.Value;
-            if (DateTimeFormatIds.Contains(formatId) && double.TryParse(cell.InnerText, out double oaDate))
+            var cellFormats = workbookPart?.WorkbookStylesPart?.Stylesheet?.CellFormats;
+            if (cellFormats == null || styleIndex >= cellFormats.ChildElements.Count)
+                return cell.CellValue?.Text;
+
+            CellFormat cellFormat = (CellFormat)cellFormats.ElementAt((int)styleIndex);
+            uint? formatId = cellFormat?.NumberFormatId?.Value;
+            if (formatId == null) return cell.CellValue?.Text;
+
+            if (DateTimeFormatIds.Contains(formatId.Value) && double.TryParse(cell.InnerText, NumberStyles.Any, CultureInfo.InvariantCulture, out double oaDate))
                 return DateTime.FromOADate(oaDate);
-            else if (DecimalFormatIds.Contains(formatId)
-                && decimal.TryParse(cell.InnerText, out decimal d)
+            else if (DecimalFormatIds.Contains(formatId.Value)
+                && decimal.TryParse(cell.InnerText, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal d)
                 ) return d;
-            else if (IntFormatIds.Contains(formatId)
-                && int.TryParse(cell.InnerText, out int i)) return i;
+            else if (IntFormatIds.Contains(formatId.Value)
+                && int.TryParse(cell.InnerText, NumberStyles.Any, CultureInfo.InvariantCulture, out int i)) return i;
 
             return cell.CellValue?.Text;
         }
