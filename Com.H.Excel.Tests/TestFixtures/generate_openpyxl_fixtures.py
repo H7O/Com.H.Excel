@@ -50,8 +50,22 @@ def write_empty_middle_cells():
     wb.save(HERE / "openpyxl_empty_middle.xlsx")
 
 
+def write_dates_with_custom_numfmt():
+    # openpyxl emits date cells as t="n" with style pointing at a CUSTOM numFmtId
+    # (typically 164) whose formatCode is e.g. "yyyy-mm-dd h:mm:ss". Real-world failure
+    # mode reported by a downstream user — committing this so the fix doesn't regress.
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["Name", "When"])
+    ws.append(["alpha", datetime(2024, 3, 15, 9, 30, 0)])
+    ws.append(["beta", datetime(2025, 12, 31, 23, 59, 59)])
+    wb.save(HERE / "openpyxl_dates_custom_numfmt.xlsx")
+
+
 if __name__ == "__main__":
     write_basic_strings()
     write_mixed_types()
     write_empty_middle_cells()
+    write_dates_with_custom_numfmt()
     print("Generated fixtures in", HERE)

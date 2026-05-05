@@ -12,8 +12,8 @@
     <Authors>Hussein Al Bayati</Authors>
     <PackageIcon>128x128.jpg</PackageIcon>
     <PackageReadmeFile>nuget.md</PackageReadmeFile>
-    <Version>10.1.0</Version>
-    <PackageReleaseNotes>Read path: handle openpyxl-style files (inline strings, missing SharedStringTablePart) without NREs; fix inverted boolean parse; ensure SpreadsheetDocument is disposed in iterator paths. Write path: emit valid empty cells for null values; write booleans as "1"/"0" and numerics with InvariantCulture so files are well-formed under any locale.</PackageReleaseNotes>
+    <Version>10.1.1</Version>
+    <PackageReleaseNotes>Read path: resolve custom number-format codes from the workbook's numFmts (e.g. openpyxl's numFmtId=164 with formatCode "yyyy-mm-dd h:mm:ss"), so date cells written as t="n" with a custom style now parse to DateTime instead of returning the raw OADate string. Also classifies custom decimal/integer formats. Stops assuming numFmtIds 164/165/166 have fixed meanings.</PackageReleaseNotes>
     <PackageTags>excel, xlsx, openxml, dynamic, ExpandoObject</PackageTags>
     <Description>Easy reading / writing / streaming Excel (xlsx) files.</Description>
     <PackageProjectUrl>https://github.com/H7O/Com.H.Excel</PackageProjectUrl>

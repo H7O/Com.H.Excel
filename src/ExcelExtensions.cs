@@ -138,6 +138,9 @@ namespace Com.H.Excel
             Text = 49
         }
 
+        // Built-in (spec-defined) date/time format IDs only. IDs >= 164 are CUSTOM and
+        // their meaning lives in the file's <numFmts> table — they must be looked up
+        // via FormatCategoryFromCustom rather than assumed.
         private static readonly uint[] DateTimeFormatIds
             = new uint[]
             {
@@ -145,7 +148,6 @@ namespace Com.H.Excel
                 (uint) Formats.Date2,
                 (uint) Formats.Date3,
                 (uint) Formats.DateTime1,
-                (uint) Formats.Date4,
                 (uint) Formats.Time1,
                 (uint) Formats.Time2,
                 (uint) Formats.Time3,
@@ -153,7 +155,6 @@ namespace Com.H.Excel
                 (uint) Formats.Time5,
                 (uint) Formats.Time6,
                 (uint) Formats.Time7,
-                (uint) Formats.Time8
             };
         private static readonly uint[] IntFormatIds
             = new uint[]
@@ -952,10 +953,13 @@ namespace Com.H.Excel
             uint? formatId = cellFormat?.NumberFormatId?.Value;
             if (formatId == null) return null;
 
-            if (DateTimeFormatIds.Contains(formatId.Value)) return typeof(DateTime?);
-            if (IntFormatIds.Contains(formatId.Value)) return typeof(int?);
-            if (DecimalFormatIds.Contains(formatId.Value)) return typeof(decimal?);
-            return null;
+            switch (ResolveFormatCategory(workbookPart, formatId.Value))
+            {
+                case FormatCategory.DateTime: return typeof(DateTime?);
+                case FormatCategory.Integer: return typeof(int?);
+                case FormatCategory.Decimal: return typeof(decimal?);
+                default: return null;
+            }
         }
         private static string ResolveSharedString(WorkbookPart workbookPart, string indexText)
         {
@@ -964,6 +968,72 @@ namespace Com.H.Excel
             if (!int.TryParse(indexText, out int idx)) return indexText;
             if (idx < 0 || idx >= sst.ChildElements.Count) return indexText;
             return sst.ChildElements[idx].InnerText;
+        }
+
+        // Resolves a custom format code (numFmtId >= 164) from the workbook's <numFmts>.
+        private static string GetCustomFormatCode(WorkbookPart workbookPart, uint formatId)
+        {
+            var numFmts = workbookPart?.WorkbookStylesPart?.Stylesheet?.NumberingFormats;
+            if (numFmts == null) return null;
+            foreach (var nf in numFmts.OfType<NumberingFormat>())
+            {
+                if (nf.NumberFormatId?.Value == formatId)
+                    return nf.FormatCode?.Value;
+            }
+            return null;
+        }
+
+        // Strips bracketed sections ([Red], [$-409], etc.) and quoted/escaped literals from a
+        // format code so we can inspect only its semantic placeholders.
+        private static string StripFormatCodeLiterals(string formatCode)
+        {
+            if (string.IsNullOrEmpty(formatCode)) return string.Empty;
+            var sb = new System.Text.StringBuilder(formatCode.Length);
+            bool inBracket = false, inQuote = false;
+            for (int i = 0; i < formatCode.Length; i++)
+            {
+                char c = formatCode[i];
+                if (inBracket) { if (c == ']') inBracket = false; continue; }
+                if (inQuote) { if (c == '"') inQuote = false; continue; }
+                if (c == '[') { inBracket = true; continue; }
+                if (c == '"') { inQuote = true; continue; }
+                if (c == '\\' && i + 1 < formatCode.Length) { i++; continue; }
+                sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private enum FormatCategory { Unknown, DateTime, Decimal, Integer }
+
+        // Heuristic classifier for a custom format code. y/d/h/s are unambiguous
+        // date/time markers; m alone is ambiguous (month vs minute) so we don't rely on it.
+        // After date detection, presence of a decimal point with digit placeholders or '%'
+        // implies a decimal format; otherwise placeholder-only formats (0, #, ?) are integer.
+        private static FormatCategory ClassifyFormatCode(string formatCode)
+        {
+            string stripped = StripFormatCodeLiterals(formatCode).ToLowerInvariant();
+            if (stripped.Length == 0) return FormatCategory.Unknown;
+            if (stripped.IndexOfAny(new[] { 'y', 'd', 'h', 's' }) >= 0)
+                return FormatCategory.DateTime;
+
+            bool hasDigitPlaceholder = false;
+            bool hasFraction = false;
+            foreach (char c in stripped)
+            {
+                if (c == '0' || c == '#' || c == '?') hasDigitPlaceholder = true;
+                if (c == '.' || c == '%' || c == 'e') hasFraction = true;
+            }
+            if (!hasDigitPlaceholder) return FormatCategory.Unknown;
+            return hasFraction ? FormatCategory.Decimal : FormatCategory.Integer;
+        }
+
+        private static FormatCategory ResolveFormatCategory(WorkbookPart workbookPart, uint formatId)
+        {
+            if (DateTimeFormatIds.Contains(formatId)) return FormatCategory.DateTime;
+            if (IntFormatIds.Contains(formatId)) return FormatCategory.Integer;
+            if (DecimalFormatIds.Contains(formatId)) return FormatCategory.Decimal;
+            // Fall back to inspecting the workbook's custom format definition.
+            return ClassifyFormatCode(GetCustomFormatCode(workbookPart, formatId));
         }
 
         private static string GetText(this Cell cell, WorkbookPart workbookPart)
@@ -983,6 +1053,42 @@ namespace Com.H.Excel
             return raw;
         }
 
+        // Resolves the FormatCategory for a cell's StyleIndex (if any).
+        // Returns Unknown when the cell has no style or the style points at no recognizable format.
+        private static FormatCategory GetCellFormatCategory(this Cell cell, WorkbookPart workbookPart)
+        {
+            int? styleIndex = (int?)cell?.StyleIndex?.Value;
+            if (styleIndex == null) return FormatCategory.Unknown;
+
+            var cellFormats = workbookPart?.WorkbookStylesPart?.Stylesheet?.CellFormats;
+            if (cellFormats == null || styleIndex >= cellFormats.ChildElements.Count)
+                return FormatCategory.Unknown;
+
+            CellFormat cellFormat = (CellFormat)cellFormats.ElementAt((int)styleIndex);
+            uint? formatId = cellFormat?.NumberFormatId?.Value;
+            if (formatId == null) return FormatCategory.Unknown;
+
+            return ResolveFormatCategory(workbookPart, formatId.Value);
+        }
+
+        private static object CoerceByFormat(string raw, FormatCategory category)
+        {
+            switch (category)
+            {
+                case FormatCategory.DateTime
+                    when double.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out double oaDate):
+                    return DateTime.FromOADate(oaDate);
+                case FormatCategory.Decimal
+                    when decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal d):
+                    return d;
+                case FormatCategory.Integer
+                    when int.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out int i):
+                    return i;
+                default:
+                    return null;
+            }
+        }
+
         private static object GetObject(this Cell cell, WorkbookPart workbookPart)
         {
             if (cell == null) return null;
@@ -995,41 +1101,28 @@ namespace Com.H.Excel
                     if (string.IsNullOrEmpty(raw)) return null;
                     return ResolveSharedString(workbookPart, raw);
                 }
-                else if (cellType == CellValues.InlineString)
+                if (cellType == CellValues.InlineString)
                 {
                     return cell.InlineString?.Text?.Text ?? cell.InlineString?.InnerText;
                 }
-                else if (cellType == CellValues.Boolean)
+                if (cellType == CellValues.Boolean)
                 {
                     // Excel encodes TRUE as "1" and FALSE as "0".
                     return cell.CellValue?.InnerText == "1";
                 }
-                else
-                {
-                    return cell.CellValue?.InnerText ?? cell.CellValue?.Text;
-                }
+
+                // Numeric-typed cells (t="n") may still carry a date/decimal/int style — e.g. openpyxl
+                // writes <c t="n" s="1"><v>46023</v></c> with style 1 pointing at a custom date format.
+                // Without consulting the style, OADate-encoded dates come back as bare numeric strings.
+                string numericRaw = cell.CellValue?.InnerText ?? cell.CellValue?.Text;
+                var numericCategory = cell.GetCellFormatCategory(workbookPart);
+                return CoerceByFormat(numericRaw, numericCategory) ?? numericRaw;
             }
 
-            int? styleIndex = (int?)cell.StyleIndex?.Value;
-            if (styleIndex == null) return cell.CellValue?.Text;
-
-            var cellFormats = workbookPart?.WorkbookStylesPart?.Stylesheet?.CellFormats;
-            if (cellFormats == null || styleIndex >= cellFormats.ChildElements.Count)
-                return cell.CellValue?.Text;
-
-            CellFormat cellFormat = (CellFormat)cellFormats.ElementAt((int)styleIndex);
-            uint? formatId = cellFormat?.NumberFormatId?.Value;
-            if (formatId == null) return cell.CellValue?.Text;
-
-            if (DateTimeFormatIds.Contains(formatId.Value) && double.TryParse(cell.InnerText, NumberStyles.Any, CultureInfo.InvariantCulture, out double oaDate))
-                return DateTime.FromOADate(oaDate);
-            else if (DecimalFormatIds.Contains(formatId.Value)
-                && decimal.TryParse(cell.InnerText, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal d)
-                ) return d;
-            else if (IntFormatIds.Contains(formatId.Value)
-                && int.TryParse(cell.InnerText, NumberStyles.Any, CultureInfo.InvariantCulture, out int i)) return i;
-
-            return cell.CellValue?.Text;
+            // Untyped cell: rely entirely on the style.
+            string rawText = cell.CellValue?.Text;
+            var category = cell.GetCellFormatCategory(workbookPart);
+            return CoerceByFormat(rawText, category) ?? rawText;
         }
 
 

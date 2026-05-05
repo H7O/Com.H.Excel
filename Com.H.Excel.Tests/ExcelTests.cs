@@ -583,6 +583,44 @@ public class ExcelTests : IDisposable
         Assert.Equal("d2", (string)rows[1].D);
     }
 
+    [Fact]
+    public void ReadOpenpyxlFile_DatesWithCustomNumFmt_ReturnsDateTimeValues()
+    {
+        // openpyxl writes date cells as <c t="n" s="N"><v>OADate</v></c> where the style
+        // points at a CUSTOM numFmtId (typically 164) defined in the file's <numFmts>
+        // table. Built-in date IDs aren't used. Reading these used to return the raw
+        // OADate as a string because the library only consulted hardcoded format IDs.
+        using var fs = File.OpenRead(FixturePath("openpyxl_dates_custom_numfmt.xlsx"));
+        var rows = fs.ParseExcelSheet().ToList();
+
+        Assert.Equal(2, rows.Count);
+
+        Assert.IsType<DateTime>(rows[0].When);
+        Assert.IsType<DateTime>(rows[1].When);
+
+        Assert.Equal(new DateTime(2024, 3, 15, 9, 30, 0), (DateTime)rows[0].When);
+        Assert.Equal(new DateTime(2025, 12, 31, 23, 59, 59),
+            (DateTime)rows[1].When,
+            TimeSpan.FromSeconds(1)); // OADate round-trip can drift sub-second
+    }
+
+    public class TimedRow
+    {
+        public string? Name { get; set; }
+        public DateTime When { get; set; }
+    }
+
+    [Fact]
+    public void ReadOpenpyxlFile_DatesWithCustomNumFmt_TypedParse()
+    {
+        using var fs = File.OpenRead(FixturePath("openpyxl_dates_custom_numfmt.xlsx"));
+        var rows = fs.ParseExcelSheet<TimedRow>("Sheet1").ToList();
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("alpha", rows[0].Name);
+        Assert.Equal(new DateTime(2024, 3, 15, 9, 30, 0), rows[0].When);
+    }
+
     #endregion
 }
 
