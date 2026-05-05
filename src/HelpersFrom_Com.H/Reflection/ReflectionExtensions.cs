@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Dynamic;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -76,9 +77,12 @@ namespace Com.H.Excel
 
         internal static object ConvertTo(this object obj, Type type)
         {
+            if (obj == null || DBNull.Value.Equals(obj)) return type.GetDefault();
             Type dstType = Nullable.GetUnderlyingType(type) ?? type;
-            return (obj == null || DBNull.Value.Equals(obj)) ?
-               type.GetDefault() : Convert.ChangeType(obj, dstType);
+            // Excel cell text is locale-neutral (we already parse numerics with
+            // InvariantCulture on read), so the destination conversion must match —
+            // otherwise typed parsing of decimals breaks on non-en machines.
+            return Convert.ChangeType(obj, dstType, CultureInfo.InvariantCulture);
         }
 
         internal static bool IsDefault<T>(this T value) where T : struct

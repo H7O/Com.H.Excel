@@ -1073,6 +1073,7 @@ namespace Com.H.Excel
 
         private static object CoerceByFormat(string raw, FormatCategory category)
         {
+            if (string.IsNullOrEmpty(raw)) return null;
             switch (category)
             {
                 case FormatCategory.DateTime
@@ -1084,9 +1085,27 @@ namespace Com.H.Excel
                 case FormatCategory.Integer
                     when int.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out int i):
                     return i;
+                // Format said integer but the value carries a fractional part — fall back to
+                // decimal rather than dropping precision and returning the raw string.
+                case FormatCategory.Integer
+                    when decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal di):
+                    return di;
                 default:
                     return null;
             }
+        }
+
+        // For Number-typed cells we know the cell is numeric. If the style didn't yield a
+        // category (e.g. format 0/General, or no style at all), still parse the value
+        // as a number rather than returning a bare string.
+        private static object ParseNumericFallback(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return null;
+            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int i))
+                return i;
+            if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal d))
+                return d;
+            return null;
         }
 
         private static object GetObject(this Cell cell, WorkbookPart workbookPart)
@@ -1113,13 +1132,16 @@ namespace Com.H.Excel
 
                 // Numeric-typed cells (t="n") may still carry a date/decimal/int style — e.g. openpyxl
                 // writes <c t="n" s="1"><v>46023</v></c> with style 1 pointing at a custom date format.
-                // Without consulting the style, OADate-encoded dates come back as bare numeric strings.
+                // If no style yields a category, the cell is still numeric — return int/decimal
+                // rather than a bare string so dynamic consumers see the value's real type.
                 string numericRaw = cell.CellValue?.InnerText ?? cell.CellValue?.Text;
                 var numericCategory = cell.GetCellFormatCategory(workbookPart);
-                return CoerceByFormat(numericRaw, numericCategory) ?? numericRaw;
+                return CoerceByFormat(numericRaw, numericCategory)
+                    ?? ParseNumericFallback(numericRaw)
+                    ?? numericRaw;
             }
 
-            // Untyped cell: rely entirely on the style.
+            // Untyped cell: rely on the style for hints, otherwise return the raw text.
             string rawText = cell.CellValue?.Text;
             var category = cell.GetCellFormatCategory(workbookPart);
             return CoerceByFormat(rawText, category) ?? rawText;

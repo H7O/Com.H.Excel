@@ -122,7 +122,8 @@ public class ExcelTests : IDisposable
         // Assert
         Assert.Equal(3, sheet.Count);
         Assert.Equal("Alice", (string)sheet[0].Name);
-        Assert.Equal("25", (string)sheet[0].Age);
+        // Numeric cells now come back as int/decimal (was string in 10.1.x and earlier).
+        Assert.Equal(25, (int)sheet[0].Age);
         Assert.Equal("Bob", (string)sheet[1].Name);
         Assert.Equal("Charlie", (string)sheet[2].Name);
     }
@@ -211,7 +212,8 @@ public class ExcelTests : IDisposable
 
         // Assert
         Assert.Equal(3, readData.Count);
-        Assert.Equal("1", (string)readData[0].Id);
+        Assert.Equal(1, (int)readData[0].Id);
+        Assert.Equal(100.50m, (decimal)readData[0].Value);
         Assert.Equal("First item", (string)readData[0].Description);
         Assert.Equal("Second item", (string)readData[1].Description);
         Assert.Equal("Third item", (string)readData[2].Description);
@@ -619,6 +621,180 @@ public class ExcelTests : IDisposable
         Assert.Equal(2, rows.Count);
         Assert.Equal("alpha", rows[0].Name);
         Assert.Equal(new DateTime(2024, 3, 15, 9, 30, 0), rows[0].When);
+    }
+
+    [Fact]
+    public void ReadOpenpyxlFile_PlainNumbers_ReturnAsNumericTypes()
+    {
+        // openpyxl writes numeric cells as <c t="n"><v>...</v></c> with NO style at all.
+        // Previously these came back as strings; now they come back as int/decimal so
+        // dynamic consumers see the value's actual type.
+        using var fs = File.OpenRead(FixturePath("openpyxl_mixed_types.xlsx"));
+        var rows = fs.ParseExcelSheet().ToList();
+
+        Assert.Equal(2, rows.Count);
+        Assert.IsType<int>(rows[0].Score);
+        Assert.Equal(42, (int)rows[0].Score);
+        Assert.Equal(7, (int)rows[1].Score);
+    }
+
+    #endregion
+
+    #region Numeric handling — plain cells, integer-format with fractional values, locale
+
+    [Fact]
+    public void DynamicParse_PlainIntegerWrittenByUs_ComesBackAsInt()
+    {
+        var data = new List<object>
+        {
+            new { Name = "alpha", Count = 42 },
+            new { Name = "beta", Count = 7 },
+        };
+        var path = Path.Combine(_tempFolder, "plain_int.xlsx");
+        data.ToExcelFile(path);
+
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var rows = fs.ParseExcelSheet().ToList();
+
+        Assert.Equal(2, rows.Count);
+        Assert.IsType<int>(rows[0].Count);
+        Assert.Equal(42, (int)rows[0].Count);
+    }
+
+    [Fact]
+    public void DynamicParse_PlainDecimalWrittenByUs_ComesBackAsDecimal()
+    {
+        var data = new List<object>
+        {
+            new { Name = "alpha", Price = 10.5m },
+        };
+        var path = Path.Combine(_tempFolder, "plain_decimal.xlsx");
+        data.ToExcelFile(path);
+
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var rows = fs.ParseExcelSheet().ToList();
+
+        Assert.IsType<decimal>(rows[0].Price);
+        Assert.Equal(10.5m, (decimal)rows[0].Price);
+    }
+
+    public class PricedRow
+    {
+        public string? Name { get; set; }
+        public decimal Price { get; set; }
+    }
+
+    [Fact]
+    public void IntegerFormatWithFractionalValue_FallsBackToDecimal()
+    {
+        // Build a file where the cell carries an integer-style format (#,##0)
+        // but the underlying numeric value is fractional. Old code returned a
+        // bare string because int.TryParse failed on "1234.5"; now we fall
+        // through to decimal so no precision is lost.
+        var path = Path.Combine(_tempFolder, "int_format_frac_value.xlsx");
+        using (var doc = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook))
+        {
+            var wbPart = doc.AddWorkbookPart();
+            wbPart.Workbook = new Workbook();
+
+            var stylesPart = wbPart.AddNewPart<WorkbookStylesPart>();
+            stylesPart.Stylesheet = new Stylesheet(
+                new NumberingFormats(
+                    new NumberingFormat { NumberFormatId = 164u, FormatCode = "#,##0" }),
+                new Fonts(new Font()) { Count = 1 },
+                new Fills(new Fill()) { Count = 1 },
+                new Borders(new Border()) { Count = 1 },
+                new CellFormats(
+                    new CellFormat(),
+                    new CellFormat
+                    {
+                        NumberFormatId = 164u,
+                        ApplyNumberFormat = true
+                    }) { Count = 2 });
+            stylesPart.Stylesheet.Save();
+
+            var wsPart = wbPart.AddNewPart<WorksheetPart>();
+            wsPart.Worksheet = new Worksheet(new SheetData(
+                new Row(
+                    new Cell { CellValue = new CellValue("Name"), DataType = new EnumValue<CellValues>(CellValues.String) },
+                    new Cell { CellValue = new CellValue("Score"), DataType = new EnumValue<CellValues>(CellValues.String) }),
+                new Row(
+                    new Cell { CellValue = new CellValue("alpha"), DataType = new EnumValue<CellValues>(CellValues.String) },
+                    new Cell { CellValue = new CellValue("1234.5"), DataType = new EnumValue<CellValues>(CellValues.Number), StyleIndex = 1 })));
+
+            var sheets = wbPart.Workbook.AppendChild(new Sheets());
+            sheets.Append(new Sheet { Id = wbPart.GetIdOfPart(wsPart), SheetId = 1, Name = "Sheet1" });
+            wbPart.Workbook.Save();
+        }
+
+        using var fs = File.OpenRead(path);
+        var rows = fs.ParseExcelSheet().ToList();
+
+        Assert.Single(rows);
+        // Format said int, but the value is fractional — must come back as decimal,
+        // not as a bare string (would lose typing) and not as a truncated int (would lose precision).
+        Assert.IsType<decimal>(rows[0].Score);
+        Assert.Equal(1234.5m, (decimal)rows[0].Score);
+    }
+
+    [Fact]
+    public void TypedParse_DecimalProperty_WorksRegardlessOfThreadCulture()
+    {
+        // Until 10.2.0, ConvertTo used current-culture for Convert.ChangeType. On a
+        // de-DE machine, Convert.ChangeType("10.5", typeof(decimal)) parses the dot
+        // as a thousands separator and returns 105m — silently corrupting values.
+        // We force a de-DE culture for the duration of the test to lock down the fix.
+        var data = new List<object>
+        {
+            new { Name = "alpha", Price = 10.5m },
+            new { Name = "beta", Price = 1234.56m },
+        };
+        var path = Path.Combine(_tempFolder, "decimal_culture.xlsx");
+        data.ToExcelFile(path);
+
+        var prevCulture = System.Threading.Thread.CurrentThread.CurrentCulture;
+        try
+        {
+            System.Threading.Thread.CurrentThread.CurrentCulture =
+                new System.Globalization.CultureInfo("de-DE");
+
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var rows = fs.ParseExcelSheet<PricedRow>("Sheet1").ToList();
+
+            Assert.Equal(2, rows.Count);
+            Assert.Equal(10.5m, rows[0].Price);
+            Assert.Equal(1234.56m, rows[1].Price);
+        }
+        finally
+        {
+            System.Threading.Thread.CurrentThread.CurrentCulture = prevCulture;
+        }
+    }
+
+    [Fact]
+    public void DynamicParse_NumberInExtremelyLargeRange_FallsBackToDecimal()
+    {
+        // int.TryParse fails on values outside Int32 range — must fall back to decimal
+        // rather than dropping to string.
+        var path = Path.Combine(_tempFolder, "big_number.xlsx");
+        using (var doc = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook))
+        {
+            var wbPart = doc.AddWorkbookPart();
+            wbPart.Workbook = new Workbook();
+            var wsPart = wbPart.AddNewPart<WorksheetPart>();
+            wsPart.Worksheet = new Worksheet(new SheetData(
+                new Row(new Cell { CellValue = new CellValue("Big"), DataType = new EnumValue<CellValues>(CellValues.String) }),
+                new Row(new Cell { CellValue = new CellValue("9999999999999"), DataType = new EnumValue<CellValues>(CellValues.Number) })));
+            var sheets = wbPart.Workbook.AppendChild(new Sheets());
+            sheets.Append(new Sheet { Id = wbPart.GetIdOfPart(wsPart), SheetId = 1, Name = "Sheet1" });
+            wbPart.Workbook.Save();
+        }
+
+        using var fs = File.OpenRead(path);
+        var rows = fs.ParseExcelSheet().ToList();
+        Assert.Single(rows);
+        Assert.IsType<decimal>(rows[0].Big);
+        Assert.Equal(9999999999999m, (decimal)rows[0].Big);
     }
 
     #endregion
